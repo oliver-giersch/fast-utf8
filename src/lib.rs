@@ -44,10 +44,10 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
             }
 
             // check if `curr`'s pointer is word-aligned
-            let offset = align_offset.wrapping_sub(curr);
+            let offset = align_offset.wrapping_sub(curr) % BYTES;
             // `align_offset` can basically only be `usize::MAX` for ZST
             // pointers, so the first check is most likely optimized away
-            if offset % BYTES == 0 {
+            if offset == 0 {
                 let mut ascii = true;
                 // check 8-word blocks for non-ASCII bytes
                 while curr < block_end_8x {
@@ -117,6 +117,7 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
 }
 
 #[inline(always)]
+#[cold]
 const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize, end: usize) -> Option<usize> {
     macro_rules! next {
         () => {{
