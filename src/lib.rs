@@ -22,13 +22,14 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
     let block_end_2x = block_end(end, ASCII_BLOCK_2X);
 
     macro_rules! block_loop {
-        ($label:lifetime, $N:expr) => {
+        ($flag:expr, $N:expr) => {
             // SAFETY: we have checked before that there are still at least
             // `N * size_of::<usize>()` in the buffer and that the current byte
             // is word-aligned
             let block = unsafe { &*(start.add(curr) as *const [usize; $N]) };
             if has_non_ascii_byte(block) {
-                break $label;
+                $flag = false;
+                break;
             }
 
             curr += $N * BYTES;
@@ -47,23 +48,24 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
             // `align_offset` can basically only be `usize::MAX` for ZST
             // pointers, so the first check is most likely optimized away
             if offset % BYTES == 0 {
-                'outer: loop {
-                    // check 8-word blocks for non-ASCII bytes
-                    while curr < block_end_8x {
-                        block_loop!('outer, 8);
-                    }
+                let mut ascii = true;
+                // check 8-word blocks for non-ASCII bytes
+                while curr < block_end_8x {
+                    block_loop!(ascii, 8);
+                }
 
-                    // check 4-word blocks for non-ASCII bytes
+                // check 4-word blocks for non-ASCII bytes
+                if ascii {
                     while curr < block_end_4x {
-                        block_loop!('outer, 4);
+                        block_loop!(ascii, 4);
                     }
+                }
 
-                    // check 2-word blocks for non-ASCII bytes
+                // check 2-word blocks for non-ASCII bytes
+                if ascii {
                     while curr < block_end_2x {
-                        block_loop!('outer, 2);
+                        block_loop!(ascii, 2);
                     }
-
-                    break;
                 }
 
                 // if the block loops were stopped due to a non-ascii byte,

@@ -30,15 +30,6 @@ const SHORT_TEXT: &[u8] = b"Lorem ipsum dolor sit amet.";
 
 #[bench]
 fn validate_fast_very_long_utf8(b: &mut Bencher) {
-    b.iter(|| {
-        assert!(fast_utf8::validate_utf8(black_box(
-            VERY_LONG_TEXT_UTF8.as_bytes()
-        )));
-    });
-}
-
-#[bench]
-fn validate_very_long(b: &mut Bencher) {
     let text = VERY_LONG_TEXT_UTF8.as_bytes();
     b.iter(|| {
         let ok = fast_utf8::validate_utf8(black_box(text));
