@@ -3,7 +3,7 @@ use core::{mem, slice};
 const BYTES: usize = mem::size_of::<usize>();
 const NONASCII_MASK: usize = usize::from_ne_bytes([0x80; BYTES]);
 
-//#[inline]
+#[inline]
 pub fn validate_utf8(buf: &[u8]) -> bool {
     // we check aligned blocks of up to 8 words at a time
     #[cfg(target_feature = "avx")]
@@ -52,7 +52,7 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
                         };
                     }
 
-                    // check 8-word blocks for non-ASCII bytes (AVX512 only)
+                    // check 8-word blocks for non-ASCII bytes
                     #[cfg(target_feature = "avx")]
                     while curr < block_end_8x {
                         block_loop!(8);
@@ -69,6 +69,7 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
                         block_loop!(2);
                     }
 
+                    // at most ??? bytes remain
                     break None;
                 };
 
@@ -90,7 +91,7 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
 
                     // calculate the amount of bytes that can be skipped without
                     // having to check them individually
-                    let (skip, non_ascii) = non_ascii_byte_position_dyn(block);
+                    let (skip, non_ascii) = non_ascii_byte_position(block);
                     curr += skip;
 
                     // if a non-ASCII byte was found, skip the subsequent
@@ -129,8 +130,7 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
     true
 }
 
-//#[inline(always)]
-#[cold]
+#[inline]
 const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize, end: usize) -> Option<usize> {
     macro_rules! next {
         () => {{
@@ -208,34 +208,10 @@ const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
 /// Returns the number of consecutive ASCII bytes within `block` until the first
 /// non-ASCII byte and `true`, if a non-ASCII byte was found.
 ///
-/// Returns `N * size_of::<usize>()` and `false`, if all bytes are ASCII bytes.
+/// Returns `block.len() * size_of::<usize>()` and `false`, if all bytes are
+/// ASCII bytes.
 #[inline(always)]
-const fn non_ascii_byte_position<const N: usize>(block: &[usize; N]) -> (usize, bool) {
-    let mut vector = *block;
-
-    let mut i = 0;
-    while i < N {
-        vector[i] &= NONASCII_MASK;
-        i += 1;
-    }
-
-    i = 0;
-    while i < N {
-        let ctz = vector[i].trailing_zeros() as usize;
-        let byte = ctz / BYTES;
-
-        if byte != BYTES {
-            return (byte + (i * BYTES), true);
-        }
-
-        i += 1;
-    }
-
-    (BYTES * N, false)
-}
-
-#[inline(always)]
-const fn non_ascii_byte_position_dyn(block: &[usize]) -> (usize, bool) {
+const fn non_ascii_byte_position(block: &[usize]) -> (usize, bool) {
     let mut i = 0;
     while i < block.len() {
         let mask = block[i] & NONASCII_MASK;
