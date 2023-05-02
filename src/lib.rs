@@ -6,7 +6,9 @@ const NONASCII_MASK: usize = usize::from_ne_bytes([0x80; BYTES]);
 //#[inline]
 pub fn validate_utf8(buf: &[u8]) -> bool {
     // we check aligned blocks of up to 8 words at a time
+    #[cfg(target_feature = "avx512")]
     const ASCII_BLOCK_8X: usize = 8 * BYTES;
+    #[cfg(target_feature = "avx")]
     const ASCII_BLOCK_4X: usize = 4 * BYTES;
     const ASCII_BLOCK_2X: usize = 2 * BYTES;
 
@@ -17,7 +19,9 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
 
     // calculate the maximum byte at which a block of size N could begin,
     // without taking alignment into account
+    #[cfg(target_feature = "avx512")]
     let block_end_8x = block_end(end, ASCII_BLOCK_8X);
+    #[cfg(target_feature = "avx")]
     let block_end_4x = block_end(end, ASCII_BLOCK_4X);
     let block_end_2x = block_end(end, ASCII_BLOCK_2X);
 
@@ -48,11 +52,15 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
                         };
                     }
 
-                    // check 8-word blocks for non-ASCII bytes
-                    while curr < block_end_8x {
-                        block_loop!(8);
+                    // check 8-word blocks for non-ASCII bytes (AVX512 only)
+                    #[target_feature(enable = "avx512")]
+                    {
+                        while curr < block_end_8x {
+                            block_loop!(8);
+                        }
                     }
 
+                    #[target_feature = "avx"]
                     // check 4-word blocks for non-ASCII bytes
                     while curr < block_end_4x {
                         block_loop!(4);
