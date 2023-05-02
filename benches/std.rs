@@ -7,6 +7,8 @@ use std::hint::black_box;
 use test::Bencher;
 
 const VERY_LONG_TEXT_UTF8: &str = include_str!("../assets/text_utf8");
+// 191'725 ASCII characters
+const HAMLET: &str = include_str!("../assets/hamlet.txt");
 
 #[inline]
 fn naive_std(buf: &[u8]) -> bool {
@@ -27,6 +29,24 @@ Aenean purus felis, dictum id pharetra eget, auctor ut magna. Vestibulum eu puru
 const MID_TEXT: &[u8] = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla et eros porta, tincidunt est vitae, pulvinar neque. Phasellus enim nulla, finibus vitae odio ac, iaculis pharetra mi. Aliquam sit amet enim nec felis ornare sagittis vel ut dui. Quisque vitae rhoncus sapien. Donec malesuada enim non lacus bibendum, et suscipit nunc vehicula. Proin eget nunc eget libero mattis elementum. Donec justo quam, scelerisque at erat a, consectetur faucibus risus. Fusce quis aliquet tellus. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras aliquet tincidunt euismod. ";
 
 const SHORT_TEXT: &[u8] = b"Lorem ipsum dolor sit amet.";
+
+#[bench]
+fn validate_fast_hamlet(b: &mut Bencher) {
+    let text = HAMLET.as_bytes();
+    b.iter(|| {
+        let ok = fast_utf8::validate_utf8(black_box(text));
+        assert!(black_box(ok));
+    });
+}
+
+#[bench]
+fn validate_std_hamlet(b: &mut Bencher) {
+    let text = HAMLET.as_bytes();
+    b.iter(|| {
+        let ok = naive_std(black_box(text));
+        assert!(black_box(ok));
+    });
+}
 
 #[bench]
 fn validate_fast_very_long_utf8(b: &mut Bencher) {

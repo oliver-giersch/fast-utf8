@@ -1,0 +1,10 @@
+{
+    "image": "docker.io/rustlang/rust:nightly-slim",
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,Z",
+    "workspaceFolder": "/workspace",
+    "customizations": {
+        "vscode": {
+            "extensions": []
+        }
+    }
+}
