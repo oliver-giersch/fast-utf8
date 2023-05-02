@@ -88,7 +88,8 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
                         block_loop!(2);
                     }
 
-                    // at most ??? bytes remain
+                    // `(size_of::<usize>() * 2) + (align_of::<usize> - 1)`
+                    // bytes remain at most
                     break None;
                 };
 
