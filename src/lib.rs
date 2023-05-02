@@ -12,9 +12,10 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
     const ASCII_BLOCK_4X: usize = 4 * BYTES;
     const ASCII_BLOCK_2X: usize = 2 * BYTES;
 
+    // establish buffer extent
     let (mut curr, end) = (0, buf.len());
-    // calculate the byte offset until the first word aligned block
     let start = buf.as_ptr();
+    // calculate the byte offset until the first word aligned block
     let align_offset = start.align_offset(BYTES);
 
     // calculate the maximum byte at which a block of size N could begin,
@@ -55,12 +56,30 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
                     // check 8-word blocks for non-ASCII bytes
                     #[cfg(target_feature = "avx")]
                     while curr < block_end_8x {
+                        //block_loop!(2);
+                        //block_loop!(2);
+                        //block_loop!(2);
+                        //block_loop!(2);
+                        //for _ in 0..4 {
+                        //    block_loop!(2);
+                        //}
+
+                        // larger code, slower for occasional ASCII, due to more
+                        // repeated work
                         block_loop!(8);
                     }
 
                     // check 4-word blocks for non-ASCII bytes
                     #[cfg(target_feature = "avx")]
                     while curr < block_end_4x {
+                        //block_loop!(2);
+                        //block_loop!(2);
+                        //for _ in 0..2 {
+                        //    block_loop!(2);
+                        //}
+
+                        // larger code, slower for occasional ASCII, due to more
+                        // repeated work
                         block_loop!(4);
                     }
 
@@ -185,20 +204,11 @@ const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize, end: usize) -> Opt
 /// Returns `true` if any one block is not a valid ASCII byte.
 #[inline(always)]
 const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
-    let mut vector = *block;
     let mut i = 0;
-
     while i < N {
-        vector[i] &= NONASCII_MASK;
-        i += 1;
-    }
-
-    i = 0;
-    while i < N {
-        if vector[i] > 0 {
+        if block[i] & NONASCII_MASK > 0 {
             return true;
         }
-
         i += 1;
     }
 

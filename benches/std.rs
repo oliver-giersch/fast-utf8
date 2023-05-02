@@ -6,6 +6,7 @@ use std::hint::black_box;
 
 use test::Bencher;
 
+/// German text, 16240 characters, 232 thereof non-ASCII
 const VERY_LONG_TEXT_UTF8: &str = include_str!("../assets/text_utf8");
 // 191'725 ASCII characters
 const HAMLET: &str = include_str!("../assets/hamlet.txt");
@@ -49,7 +50,7 @@ fn validate_std_hamlet(b: &mut Bencher) {
 }
 
 #[bench]
-fn validate_fast_very_long_utf8(b: &mut Bencher) {
+fn validate_fast_very_long_mostly_ascii(b: &mut Bencher) {
     let text = VERY_LONG_TEXT_UTF8.as_bytes();
     b.iter(|| {
         let ok = fast_utf8::validate_utf8(black_box(text));
@@ -58,7 +59,7 @@ fn validate_fast_very_long_utf8(b: &mut Bencher) {
 }
 
 #[bench]
-fn validate_std_very_long_utf8(b: &mut Bencher) {
+fn validate_std_very_long_mostly_ascii(b: &mut Bencher) {
     let text = VERY_LONG_TEXT_UTF8.as_bytes();
     b.iter(|| {
         let ok = naive_std(black_box(text));
