@@ -1,0 +1,26 @@
+
+running 4 tests
+test tests::non_ascii_byte_count ... ignored
+test tests::validate_invalid ... ignored
+test tests::validate_mostly_ascii ... ignored
+test tests::validate_utf ... ignored
+
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 12 tests
+test fast_hamlet       ... bench:       4,811 ns/iter (+/- 114)
+test fast_long_utf8    ... bench:          72 ns/iter (+/- 5)
+test fast_medium       ... bench:          20 ns/iter (+/- 0)
+test fast_mostly_ascii ... bench:       2,516 ns/iter (+/- 78)
+test fast_short        ... bench:          10 ns/iter (+/- 0)
+test fast_short_utf8   ... bench:          25 ns/iter (+/- 0)
+test std_hamlet        ... bench:       6,707 ns/iter (+/- 82)
+test std_long_utf8     ... bench:         118 ns/iter (+/- 2)
+test std_medium        ... bench:          28 ns/iter (+/- 1)
+test std_mostly_ascii  ... bench:       2,887 ns/iter (+/- 36)
+test std_short         ... bench:          11 ns/iter (+/- 0)
+test std_short_utf8    ... bench:          29 ns/iter (+/- 0)
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 12 measured; 0 filtered out; finished in 2.99s
+

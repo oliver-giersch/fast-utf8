@@ -3,6 +3,14 @@ use core::{mem, slice};
 const BYTES: usize = mem::size_of::<usize>();
 const NONASCII_MASK: usize = usize::from_ne_bytes([0x80; BYTES]);
 
+// TODO:
+// The larger block loops don't bring universal benefits
+// - on ARM with cpu=native: YES
+// - on x86 with cpu=native: YES (AVX?)
+// - on x86 w/o cpu=native: NO
+//
+// #[cfg(any(target-feature = "avx", target-arch = "aarch64"))] <- very restrictive...
+
 #[inline]
 pub fn validate_utf8(buf: &[u8]) -> bool {
     // we check aligned blocks of up to 8 words at a time
