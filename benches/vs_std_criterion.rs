@@ -31,49 +31,61 @@ fn validate(f: fn(&[u8]) -> bool, text: &[u8]) {
     assert!(black_box(ok));
 }
 
-fn criterion_benchmark(c: &mut Criterion) {
-    c.bench_function("fast/hamlet", |b| {
-        b.iter(|| validate(fast, HAMLET.as_bytes()))
-    });
-    c.bench_function("std/hamlet", |b| {
-        b.iter(|| validate(std, HAMLET.as_bytes()))
-    });
-
-    c.bench_function("fast/mostly ascii", |b| {
-        b.iter(|| validate(fast, MOSTLY_ASCII.as_bytes()))
-    });
-    c.bench_function("std/mostly ascii", |b| {
-        b.iter(|| validate(std, MOSTLY_ASCII.as_bytes()))
-    });
-
-    c.bench_function("fast/long", |b| {
-        b.iter(|| validate(fast, LONG_TEXT.as_bytes()))
-    });
-    c.bench_function("std/long", |b| {
-        b.iter(|| validate(std, LONG_TEXT.as_bytes()))
-    });
-
-    c.bench_function("fast/medium", |b| {
-        b.iter(|| validate(fast, MEDIUM_TEXT.as_bytes()))
-    });
-    c.bench_function("std/medium", |b| {
-        b.iter(|| validate(std, MEDIUM_TEXT.as_bytes()))
-    });
-
-    c.bench_function("fast/short", |b| {
-        b.iter(|| validate(fast, SHORT_TEXT.as_bytes()))
-    });
-    c.bench_function("std/short", |b| {
-        b.iter(|| validate(std, SHORT_TEXT.as_bytes()))
-    });
-
-    c.bench_function("fast/short utf8", |b| {
-        b.iter(|| validate(fast, SHORT_TEXT_UTF8.as_bytes()))
-    });
-    c.bench_function("std/short utf8", |b| {
-        b.iter(|| validate(std, SHORT_TEXT_UTF8.as_bytes()))
-    });
+fn hamlet(c: &mut Criterion) {
+    let text = HAMLET.as_bytes();
+    let mut group = c.benchmark_group("hamlet");
+    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
+    group.bench_function("std", |b| b.iter(|| validate(std, text)));
+    group.finish();
 }
 
-criterion_group!(benches, criterion_benchmark);
+fn mostly_ascii(c: &mut Criterion) {
+    let text = MOSTLY_ASCII.as_bytes();
+    let mut group = c.benchmark_group("mostly ascii");
+    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
+    group.bench_function("std", |b| b.iter(|| validate(std, text)));
+    group.finish();
+}
+
+fn long(c: &mut Criterion) {
+    let text = LONG_TEXT.as_bytes();
+    let mut group = c.benchmark_group("long");
+    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
+    group.bench_function("std", |b| b.iter(|| validate(std, text)));
+    group.finish();
+}
+
+fn medium(c: &mut Criterion) {
+    let text = MEDIUM_TEXT.as_bytes();
+    let mut group = c.benchmark_group("medium");
+    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
+    group.bench_function("std", |b| b.iter(|| validate(std, text)));
+    group.finish();
+}
+
+fn short(c: &mut Criterion) {
+    let text = SHORT_TEXT.as_bytes();
+    let mut group = c.benchmark_group("short");
+    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
+    group.bench_function("std", |b| b.iter(|| validate(std, text)));
+    group.finish();
+}
+
+fn short_utf8(c: &mut Criterion) {
+    let text = SHORT_TEXT_UTF8.as_bytes();
+    let mut group = c.benchmark_group("short utf8");
+    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
+    group.bench_function("std", |b| b.iter(|| validate(std, text)));
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    hamlet,
+    mostly_ascii,
+    long,
+    medium,
+    short,
+    short_utf8
+);
 criterion_main!(benches);

@@ -59,12 +59,26 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
 
                     // check 8-word blocks for non-ASCII bytes
                     while curr < block_end_8x {
+                        #[cfg(target_feature = "avx")]
                         block_loop!(8);
+                        #[cfg(not(target_feature = "avx"))]
+                        {
+                            block_loop!(2);
+                            block_loop!(2);
+                            block_loop!(2);
+                            block_loop!(2);
+                        }
                     }
 
                     // check 4-word blocks for non-ASCII bytes
                     while curr < block_end_4x {
+                        #[cfg(target_feature = "avx")]
                         block_loop!(4);
+                        #[cfg(not(target_feature = "avx"))]
+                        {
+                            block_loop!(2);
+                            block_loop!(2);
+                        }
                     }
 
                     // check 2-word blocks for non-ASCII bytes

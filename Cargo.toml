@@ -6,7 +6,7 @@ edition = "2021"
 [[bench]]
 name = "vs_std_criterion"
 harness = false
-bench = false
+#bench = false
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
