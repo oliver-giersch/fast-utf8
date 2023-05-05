@@ -3,14 +3,6 @@ use core::{mem, slice};
 const BYTES: usize = mem::size_of::<usize>();
 const NONASCII_MASK: usize = usize::from_ne_bytes([0x80; BYTES]);
 
-// TODO:
-// The larger block loops don't bring universal benefits
-// - on ARM with cpu=native: YES
-// - on x86 with cpu=native: YES (AVX?)
-// - on x86 w/o cpu=native: NO
-//
-// #[cfg(any(target-feature = "avx", target-arch = "aarch64"))] <- very restrictive...
-
 #[inline]
 pub fn validate_utf8(buf: &[u8]) -> bool {
     // we check aligned blocks of up to 8 words at a time
@@ -124,7 +116,7 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
         } else {
             // non-ASCII case: validate up to 4 bytes, then advance `curr`
             // accordingly
-            match validate_non_acii_bytes(buf, curr, end) {
+            match validate_non_acii_bytes(buf, curr) {
                 Some(next) => curr = next,
                 None => return false,
             }
@@ -135,27 +127,34 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
 }
 
 #[inline]
-const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize, end: usize) -> Option<usize> {
-    macro_rules! next {
-        () => {{
-            curr += 1;
-            // we needed data, but there was none: error!
-            if curr >= end {
-                return None;
-            }
-            buf[curr]
-        }};
+const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize) -> Option<usize> {
+    const fn subarray<const N: usize>(buf: &[u8], idx: usize) -> Option<[u8; N]> {
+        if buf.len() - idx < N {
+            return None;
+        }
+
+        Some(unsafe { *(buf.as_ptr().add(idx) as *const [u8; N]) })
     }
 
-    let byte = buf[curr];
-    match utf8_char_width(byte) {
+    let b0 = buf[curr];
+    match utf8_char_width(b0) {
         2 => {
-            if next!() as i8 >= -64 {
+            let Some([_, b1]) = subarray(buf, curr) else {
+                return None
+            };
+
+            if b1 as i8 >= -64 {
                 return None;
             }
+
+            curr += 2;
         }
         3 => {
-            match (byte, next!()) {
+            let Some([_, b1, b2]) = subarray(buf, curr) else {
+                return None
+            };
+
+            match (b0, b1) {
                 (0xE0, 0xA0..=0xBF)
                 | (0xE1..=0xEC, 0x80..=0xBF)
                 | (0xED, 0x80..=0x9F)
@@ -163,26 +162,31 @@ const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize, end: usize) -> Opt
                 _ => return None,
             }
 
-            if next!() as i8 >= -64 {
+            if b2 as i8 >= -64 {
                 return None;
             }
+
+            curr += 3;
         }
         4 => {
-            match (byte, next!()) {
+            let Some([_, b1, b2, b3]) = subarray(buf, curr) else {
+                return None
+            };
+
+            match (b0, b1) {
                 (0xF0, 0x90..=0xBF) | (0xF1..=0xF3, 0x80..=0xBF) | (0xF4, 0x80..=0x8F) => {}
                 _ => return None,
             }
-            if next!() as i8 >= -64 {
+
+            if b2 as i8 >= -64 || b3 as i8 >= -64 {
                 return None;
             }
-            if next!() as i8 >= -64 {
-                return None;
-            }
+
+            curr += 4;
         }
         _ => return None,
     }
 
-    curr += 1;
     Some(curr)
 }
 
