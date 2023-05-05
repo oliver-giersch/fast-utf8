@@ -59,26 +59,12 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
 
                     // check 8-word blocks for non-ASCII bytes
                     while curr < block_end_8x {
-                        #[cfg(target_feature = "avx")]
                         block_loop!(8);
-                        #[cfg(not(target_feature = "avx"))]
-                        {
-                            block_loop!(2);
-                            block_loop!(2);
-                            block_loop!(2);
-                            block_loop!(2);
-                        }
                     }
 
                     // check 4-word blocks for non-ASCII bytes
                     while curr < block_end_4x {
-                        #[cfg(target_feature = "avx")]
                         block_loop!(4);
-                        #[cfg(not(target_feature = "avx"))]
-                        {
-                            block_loop!(2);
-                            block_loop!(2);
-                        }
                     }
 
                     // check 2-word blocks for non-ASCII bytes
@@ -200,6 +186,7 @@ const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize, end: usize) -> Opt
     Some(curr)
 }
 
+#[cfg(target_feature = "avx")]
 /// Returns `true` if any one block is not a valid ASCII byte.
 #[inline(always)]
 const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
@@ -213,6 +200,21 @@ const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
     i = 0;
     while i < N {
         if vector[i] > 0 {
+            return true;
+        }
+        i += 1;
+    }
+
+    false
+}
+
+#[cfg(not(target_feature = "avx"))]
+/// Returns `true` if any one block is not a valid ASCII byte.
+#[inline(always)]
+const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
+    let mut i = 0;
+    while i < N {
+        if block[i] & NONASCII_MASK > 0 {
             return true;
         }
         i += 1;

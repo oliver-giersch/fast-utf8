@@ -1,4 +1,4 @@
-#![feature(test)]
+/*#![feature(test)]
 
 extern crate test;
 
@@ -105,4 +105,6 @@ fn fast_short_utf8(b: &mut Bencher) {
 fn std_short_utf8(b: &mut Bencher) {
     let text = SHORT_TEXT_UTF8.as_bytes();
     b.iter(|| validate(std, text));
-}
+}*/
+
+fn main() {}

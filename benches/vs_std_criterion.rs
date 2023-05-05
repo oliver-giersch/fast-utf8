@@ -41,7 +41,7 @@ fn hamlet(c: &mut Criterion) {
 
 fn mostly_ascii(c: &mut Criterion) {
     let text = MOSTLY_ASCII.as_bytes();
-    let mut group = c.benchmark_group("mostly ascii");
+    let mut group = c.benchmark_group("mostly-ascii");
     group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
     group.bench_function("std", |b| b.iter(|| validate(std, text)));
     group.finish();
@@ -73,7 +73,7 @@ fn short(c: &mut Criterion) {
 
 fn short_utf8(c: &mut Criterion) {
     let text = SHORT_TEXT_UTF8.as_bytes();
-    let mut group = c.benchmark_group("short utf8");
+    let mut group = c.benchmark_group("short-utf8");
     group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
     group.bench_function("std", |b| b.iter(|| validate(std, text)));
     group.finish();
