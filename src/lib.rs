@@ -191,7 +191,7 @@ const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize) -> Option<usize> {
     Some(curr)
 }
 
-//#[cfg(target_feature = "avx")]
+#[cfg(target_feature = "avx")]
 /// Returns `true` if any one block is not a valid ASCII byte.
 #[inline(always)]
 const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
@@ -214,10 +214,10 @@ const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
     false
 }
 
-//#[cfg(not(target_feature = "avx"))]
+#[cfg(not(target_feature = "avx"))]
 /// Returns `true` if any one block is not a valid ASCII byte.
 #[inline(always)]
-const fn has_non_ascii_byte_simple<const N: usize>(block: &[usize; N]) -> bool {
+const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
     let mut i = 0;
     while i < N {
         if block[i] & NONASCII_MASK > 0 {
