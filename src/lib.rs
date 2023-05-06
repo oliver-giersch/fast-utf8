@@ -1,20 +1,20 @@
 use core::{mem, slice};
 
-const BYTES: usize = mem::size_of::<usize>();
-const NONASCII_MASK: usize = usize::from_ne_bytes([0x80; BYTES]);
+const WORD_BYTES: usize = mem::size_of::<usize>();
+const NONASCII_MASK: usize = usize::from_ne_bytes([0x80; WORD_BYTES]);
 
 #[inline]
 pub fn validate_utf8(buf: &[u8]) -> bool {
     // we check aligned blocks of up to 8 words at a time
-    const ASCII_BLOCK_8X: usize = 8 * BYTES;
-    const ASCII_BLOCK_4X: usize = 4 * BYTES;
-    const ASCII_BLOCK_2X: usize = 2 * BYTES;
+    const ASCII_BLOCK_8X: usize = 8 * WORD_BYTES;
+    const ASCII_BLOCK_4X: usize = 4 * WORD_BYTES;
+    const ASCII_BLOCK_2X: usize = 2 * WORD_BYTES;
 
     // establish buffer extent
     let (mut curr, end) = (0, buf.len());
     let start = buf.as_ptr();
     // calculate the byte offset until the first word aligned block
-    let align_offset = start.align_offset(BYTES);
+    let align_offset = start.align_offset(WORD_BYTES);
 
     // calculate the maximum byte at which a block of size N could begin,
     // without taking alignment into account
@@ -32,7 +32,7 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
             }
 
             // check if `curr`'s pointer is word-aligned
-            let offset = align_offset.wrapping_sub(curr) % BYTES;
+            let offset = align_offset.wrapping_sub(curr) % WORD_BYTES;
             if offset == 0 {
                 let len = 'block: loop {
                     macro_rules! block_loop {
@@ -45,7 +45,7 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
                                 break 'block Some($N);
                             }
 
-                            curr += $N * BYTES;
+                            curr += $N * WORD_BYTES;
                         };
                     }
 
@@ -240,16 +240,16 @@ const fn non_ascii_byte_position(block: &[usize]) -> (usize, bool) {
     while i < block.len() {
         let mask = block[i] & NONASCII_MASK;
         let ctz = mask.trailing_zeros() as usize;
-        let byte = ctz / BYTES;
+        let byte = ctz / WORD_BYTES;
 
-        if byte != BYTES {
-            return (byte + (i * BYTES), true);
+        if byte != WORD_BYTES {
+            return (byte + (i * WORD_BYTES), true);
         }
 
         i += 1;
     }
 
-    (BYTES * block.len(), false)
+    (WORD_BYTES * block.len(), false)
 }
 
 #[inline(always)]
