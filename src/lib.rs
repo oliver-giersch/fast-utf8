@@ -22,6 +22,9 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
     let block_end_4x = block_end(end, ASCII_BLOCK_4X);
     let block_end_2x = block_end(end, ASCII_BLOCK_2X);
 
+    let mut block_failures = 0;
+    let mut block_successes = 0;
+
     while curr < end {
         if buf[curr] < 128 {
             // `align_offset` can basically only be `usize::MAX` for ZST
@@ -42,26 +45,35 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
                             // buffer and that the current byte is word-aligned
                             let block = unsafe { &*(start.add(curr) as *const [usize; $N]) };
                             if has_non_ascii_byte(block) {
+                                block_failures += 1;
                                 break 'block Some($N);
                             }
 
                             curr += $N * WORD_BYTES;
+                            block_successes += 1;
                         };
                     }
 
                     // check 8-word blocks for non-ASCII bytes
-                    while curr < block_end_8x {
+                    while block_successes > block_failures && curr < block_end_8x {
                         block_loop!(8);
                     }
 
                     // check 4-word blocks for non-ASCII bytes
-                    while curr < block_end_4x {
+                    while block_successes > block_failures && curr < block_end_4x {
                         block_loop!(4);
                     }
 
                     // check 2-word blocks for non-ASCII bytes
                     while curr < block_end_2x {
-                        block_loop!(2);
+                        //block_loop!(2);
+                        let block = unsafe { &*(start.add(curr) as *const [usize; 2]) };
+                        if has_non_ascii_byte_2x(*block) {
+                            break 'block None;
+                        }
+
+                        curr += 2 * WORD_BYTES;
+                        block_successes += 1;
                     }
 
                     // `(size_of::<usize>() * 2) + (align_of::<usize> - 1)`
@@ -104,13 +116,16 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
             } else {
                 // byte is < 128 (ASCII), but pointer is not word-aligned, skip
                 // until the loop reaches the next word-aligned block)
-                for _ in 0..offset {
+                let mut i = 0;
+                while i < offset {
                     // no need to check alignment again for every byte, so skip
                     // up to `offset` valid ASCII bytes if possible
                     curr += 1;
                     if !(curr < end && buf[curr] < 128) {
                         break;
                     }
+
+                    i += 1;
                 }
             }
         } else {
@@ -126,7 +141,7 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
     true
 }
 
-#[inline]
+#[inline(never)]
 const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize) -> Option<usize> {
     const fn subarray<const N: usize>(buf: &[u8], idx: usize) -> Option<[u8; N]> {
         if buf.len() - idx < N {
@@ -191,7 +206,7 @@ const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize) -> Option<usize> {
     Some(curr)
 }
 
-#[cfg(target_feature = "avx")]
+//#[cfg(target_feature = "avx")]
 /// Returns `true` if any one block is not a valid ASCII byte.
 #[inline(always)]
 const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
@@ -214,7 +229,14 @@ const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
     false
 }
 
-#[cfg(not(target_feature = "avx"))]
+#[inline(always)]
+const fn has_non_ascii_byte_2x(block: [usize; 2]) -> bool {
+    let res = [block[0] & NONASCII_MASK, block[1] & NONASCII_MASK];
+    res[0] > 0 || res[1] > 0
+}
+
+/*
+//#[cfg(not(target_feature = "avx"))]
 /// Returns `true` if any one block is not a valid ASCII byte.
 #[inline(always)]
 const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
@@ -227,7 +249,7 @@ const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
     }
 
     false
-}
+}*/
 
 /// Returns the number of consecutive ASCII bytes within `block` until the first
 /// non-ASCII byte and `true`, if a non-ASCII byte was found.

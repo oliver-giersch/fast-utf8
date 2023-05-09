@@ -2,6 +2,8 @@ use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
+const CHINESE_1MB: &str = include_str!("../assets/chinese_1mb.txt");
+
 /// German text, 16'240 characters, 232 thereof non-ASCII.
 const MOSTLY_ASCII: &str = include_str!("../assets/text_utf8");
 /// English text, 191'725 plain ASCII characters.
@@ -26,9 +28,115 @@ fn std(buf: &[u8]) -> bool {
     std::str::from_utf8(buf).is_ok()
 }
 
+fn group_name<'a>(bytes: &'a [u8], language: &'static str) -> (&'a [u8], String) {
+    (
+        bytes,
+        format!(
+            "{language}/{}/{}%ascii",
+            text_size(bytes),
+            ascii_ratio(bytes)
+        ),
+    )
+}
+
+fn text_size(bytes: &[u8]) -> String {
+    let mut size = bytes.len();
+    let mut i = 0;
+    loop {
+        let next = size / 1000;
+        if next == 0 {
+            return format!(
+                "{}{}",
+                size,
+                match i {
+                    0 => "b",
+                    1 => "kb",
+                    2 => "mb",
+                    3 => "gb",
+                    4 => "tb",
+                    _ => unreachable!(),
+                }
+            );
+        }
+
+        size = next;
+        i += 1;
+    }
+}
+
+fn ascii_ratio(bytes: &[u8]) -> u32 {
+    if bytes.is_empty() {
+        return 0;
+    }
+
+    let mut ascii_count = 0;
+    let mut i = 0;
+
+    while i < bytes.len() {
+        if bytes[i].is_ascii() {
+            ascii_count += 1;
+        }
+
+        i += 1;
+    }
+
+    (ascii_count * 100 / bytes.len()) as u32
+}
+
 fn validate(f: fn(&[u8]) -> bool, text: &[u8]) {
     let ok = black_box(f(black_box(text)));
     assert!(black_box(ok));
+}
+
+fn none_0b(c: &mut Criterion) {
+    let (text, group_name) = group_name(b"", "none");
+
+    let mut group = c.benchmark_group(group_name);
+    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
+    group.bench_function("std", |b| b.iter(|| validate(std, text)));
+    group.finish();
+}
+
+fn faust_213kb(c: &mut Criterion) {
+    const FAUST: &str = include_str!("../assets/faust_213kb.txt");
+    let (text, group_name) = group_name(FAUST.as_bytes(), "german");
+
+    let mut group = c.benchmark_group(group_name);
+    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
+    group.bench_function("std", |b| b.iter(|| validate(std, text)));
+    group.finish();
+}
+
+fn hungarian_246kb(c: &mut Criterion) {
+    const HUNGARIAN: &str = include_str!("../assets/hungarian_246kb.txt");
+    let (text, group_name) = group_name(HUNGARIAN.as_bytes(), "hungarian");
+
+    let mut group = c.benchmark_group(group_name);
+    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
+    group.bench_function("std", |b| b.iter(|| validate(std, text)));
+    group.finish();
+}
+
+fn chinese_1mb(c: &mut Criterion) {
+    let text = CHINESE_1MB.as_bytes();
+    let group_name = format!("chinese/1mb/{}%ascii", ascii_ratio(CHINESE_1MB.as_bytes()));
+
+    let mut group = c.benchmark_group(group_name);
+    group.sampling_mode(criterion::SamplingMode::Flat);
+
+    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
+    group.bench_function("std", |b| b.iter(|| validate(std, text)));
+    group.finish();
+}
+
+fn english_191kb(c: &mut Criterion) {
+    const ENGLISH: &str = include_str!("../assets/hamlet.txt");
+    let (text, group_name) = group_name(ENGLISH.as_bytes(), "english");
+
+    let mut group = c.benchmark_group(group_name);
+    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
+    group.bench_function("std", |b| b.iter(|| validate(std, text)));
+    group.finish();
 }
 
 fn hamlet(c: &mut Criterion) {
@@ -81,6 +189,11 @@ fn short_utf8(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    none_0b,
+    english_191kb,
+    faust_213kb,
+    hungarian_246kb,
+    chinese_1mb,
     hamlet,
     mostly_ascii,
     long,
