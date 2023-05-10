@@ -86,12 +86,12 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
                             block_loop!(4);
                             non_ascii_penalty = non_ascii_penalty.saturating_sub(4 * WORD_BYTES);
                         }
-                    }
 
-                    // check 2-word blocks for non-ASCII bytes
-                    while curr < block_end_2x {
-                        block_loop!(2);
-                        non_ascii_penalty = non_ascii_penalty.saturating_sub(2 * WORD_BYTES);
+                        // check 2-word blocks for non-ASCII bytes
+                        while curr < block_end_2x {
+                            block_loop!(2);
+                            non_ascii_penalty = non_ascii_penalty.saturating_sub(2 * WORD_BYTES);
+                        }
                     }
 
                     // `(size_of::<usize>() * 2) + (align_of::<usize> - 1)`
