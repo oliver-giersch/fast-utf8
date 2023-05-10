@@ -2,8 +2,6 @@ use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
-const CHINESE_1MB: &str = include_str!("../assets/chinese_1mb.txt");
-
 /// German text, 16'240 characters, 232 thereof non-ASCII.
 const MOSTLY_ASCII: &str = include_str!("../assets/text_utf8");
 /// English text, 191'725 plain ASCII characters.
@@ -118,11 +116,11 @@ fn hungarian_246kb(c: &mut Criterion) {
 }
 
 fn chinese_1mb(c: &mut Criterion) {
-    let text = CHINESE_1MB.as_bytes();
-    let group_name = format!("chinese/1mb/{}%ascii", ascii_ratio(CHINESE_1MB.as_bytes()));
+    const CHINESE: &str = include_str!("../assets/chinese_1mb.txt");
+    let (text, group_name) = group_name(CHINESE.as_bytes(), "chinese");
 
     let mut group = c.benchmark_group(group_name);
-    group.sampling_mode(criterion::SamplingMode::Flat);
+    //group.sampling_mode(criterion::SamplingMode::Flat);
 
     group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
     group.bench_function("std", |b| b.iter(|| validate(std, text)));
