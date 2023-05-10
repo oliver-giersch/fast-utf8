@@ -3,8 +3,14 @@ use core::{mem, slice};
 const WORD_BYTES: usize = mem::size_of::<usize>();
 const NONASCII_MASK: usize = usize::from_ne_bytes([0x80; WORD_BYTES]);
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct Utf8Error {
+    pub valid_up_to: usize,
+    pub error_len: Option<u8>,
+}
+
 #[inline]
-pub fn validate_utf8(buf: &[u8]) -> bool {
+pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
     // we check aligned blocks of up to 8 words at a time
     const ASCII_BLOCK_8X: usize = 8 * WORD_BYTES;
     const ASCII_BLOCK_4X: usize = 4 * WORD_BYTES;
@@ -132,17 +138,17 @@ pub fn validate_utf8(buf: &[u8]) -> bool {
             // non-ASCII case: validate up to 4 bytes, then advance `curr`
             // accordingly
             match validate_non_acii_bytes(buf, curr) {
-                Some(next) => curr = next,
-                None => return false,
+                Ok(next) => curr = next,
+                Err(e) => return Err(e),
             }
         }
     }
 
-    true
+    Ok(())
 }
 
-#[inline(never)]
-const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize) -> Option<usize> {
+#[inline]
+const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize) -> Result<usize, Utf8Error> {
     const fn subarray<const N: usize>(buf: &[u8], idx: usize) -> Option<[u8; N]> {
         if buf.len() - idx < N {
             return None;
@@ -152,22 +158,32 @@ const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize) -> Option<usize> {
         Some(unsafe { *(buf.as_ptr().add(idx) as *const [u8; N]) })
     }
 
+    let prev = curr;
+    macro_rules! err {
+        ($error_len: expr) => {
+            return Err(Utf8Error {
+                valid_up_to: prev,
+                error_len: $error_len,
+            })
+        };
+    }
+
     let b0 = buf[curr];
     match utf8_char_width(b0) {
         2 => {
             let Some([_, b1]) = subarray(buf, curr) else {
-                return None
+                err!(None);
             };
 
             if b1 as i8 >= -64 {
-                return None;
+                err!(Some(1));
             }
 
             curr += 2;
         }
         3 => {
             let Some([_, b1, b2]) = subarray(buf, curr) else {
-                return None
+                err!(None);
             };
 
             match (b0, b1) {
@@ -175,35 +191,39 @@ const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize) -> Option<usize> {
                 | (0xE1..=0xEC, 0x80..=0xBF)
                 | (0xED, 0x80..=0x9F)
                 | (0xEE..=0xEF, 0x80..=0xBF) => {}
-                _ => return None,
+                _ => err!(Some(1)),
             }
 
             if b2 as i8 >= -64 {
-                return None;
+                err!(Some(2));
             }
 
             curr += 3;
         }
         4 => {
             let Some([_, b1, b2, b3]) = subarray(buf, curr) else {
-                return None
+                err!(None);
             };
 
             match (b0, b1) {
                 (0xF0, 0x90..=0xBF) | (0xF1..=0xF3, 0x80..=0xBF) | (0xF4, 0x80..=0x8F) => {}
-                _ => return None,
+                _ => err!(Some(1)),
             }
 
-            if b2 as i8 >= -64 || b3 as i8 >= -64 {
-                return None;
+            if b2 as i8 >= -64 {
+                err!(Some(2));
+            }
+
+            if b3 as i8 >= -64 {
+                err!(Some(3));
             }
 
             curr += 4;
         }
-        _ => return None,
+        _ => err!(Some(1)),
     }
 
-    Some(curr)
+    Ok(curr)
 }
 
 //#[cfg(target_feature = "avx")]
@@ -314,8 +334,27 @@ mod tests {
     const VERY_LONG_TEXT_UTF: &str = include_str!("../assets/text_utf8");
 
     #[test]
+    fn invalid_utf8() {
+        assert_eq!(
+            super::validate_utf8(b"A\xC3\xA9 \xF1 "),
+            Err(super::Utf8Error {
+                valid_up_to: 4,
+                error_len: Some(1)
+            })
+        );
+
+        assert_eq!(
+            super::validate_utf8(b"A\xC3\xA9 \xF1\x80 "),
+            Err(super::Utf8Error {
+                valid_up_to: 4,
+                error_len: Some(2)
+            })
+        );
+    }
+
+    #[test]
     fn validate_mostly_ascii() {
-        assert!(super::validate_utf8(VERY_LONG_TEXT_UTF.as_bytes()));
+        assert!(super::validate_utf8(VERY_LONG_TEXT_UTF.as_bytes()).is_ok());
     }
 
     #[test]
@@ -323,15 +362,13 @@ mod tests {
         let mut vec = Vec::from(VERY_LONG_TEXT_UTF);
         vec.push(0xFF);
 
-        assert_eq!(super::validate_utf8(&vec), false);
+        assert_eq!(super::validate_utf8(&vec).is_ok(), false);
     }
 
     #[test]
     fn validate_utf() {
-        assert!(super::validate_utf8(b"Lorem ipsum dolor sit amet."));
-        assert!(super::validate_utf8(
-            "Lörem ipsüm dölör sit ämet.".as_bytes()
-        ));
+        assert!(super::validate_utf8(b"Lorem ipsum dolor sit amet.").is_ok());
+        assert!(super::validate_utf8("Lörem ipsüm dölör sit ämet.".as_bytes()).is_ok());
     }
 
     #[test]
