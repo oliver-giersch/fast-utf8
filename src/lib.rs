@@ -9,7 +9,15 @@ pub struct Utf8Error {
     pub error_len: Option<u8>,
 }
 
-#[inline]
+// TODO: implement short/long string versions (cache line boundary?)
+// TODO: implement dynamic back-off mechanism (back off from SIMD)
+//  - non-ASCII char in block-wise path: add penalty for further block checks (increase with block-size)
+//  - ASCII char in byte-wise path: decrease penalty
+//  - non-ASCII char in byte-wise: increase penalty
+// byte-wise checks: best for 0-10% ASCII
+// ???: anything in between
+// large blocks: best for 100% ASCII
+#[inline(never)]
 pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
     // we check aligned blocks of up to 8 words at a time
     const ASCII_BLOCK_8X: usize = 8 * WORD_BYTES;
@@ -28,11 +36,12 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
     let block_end_4x = block_end(end, ASCII_BLOCK_4X);
     let block_end_2x = block_end(end, ASCII_BLOCK_2X);
 
-    let mut block_failures = 0;
-    let mut block_successes = 0;
-
     while curr < end {
         if buf[curr] < 128 {
+            // pure bytewise checks fastest for <~5% ASCII
+            // curr += 1;
+            // continue;
+
             // `align_offset` can basically only be `usize::MAX` for ZST
             // pointers, so the first check is almost certainly optimized away
             if align_offset == usize::MAX {
@@ -51,22 +60,20 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
                             // buffer and that the current byte is word-aligned
                             let block = unsafe { &*(start.add(curr) as *const [usize; $N]) };
                             if has_non_ascii_byte(block) {
-                                block_failures += 1;
                                 break 'block Some($N);
                             }
 
                             curr += $N * WORD_BYTES;
-                            block_successes += 1;
                         };
                     }
 
                     // check 8-word blocks for non-ASCII bytes
-                    while block_successes > block_failures && curr < block_end_8x {
+                    while curr < block_end_8x {
                         block_loop!(8);
                     }
 
                     // check 4-word blocks for non-ASCII bytes
-                    while block_successes > block_failures && curr < block_end_4x {
+                    while curr < block_end_4x {
                         block_loop!(4);
                     }
 
@@ -79,7 +86,6 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
                         }
 
                         curr += 2 * WORD_BYTES;
-                        block_successes += 1;
                     }
 
                     // `(size_of::<usize>() * 2) + (align_of::<usize> - 1)`
@@ -137,7 +143,7 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
         } else {
             // non-ASCII case: validate up to 4 bytes, then advance `curr`
             // accordingly
-            match validate_non_acii_bytes(buf, curr) {
+            match validate_non_acii_bytes(buf, curr, end) {
                 Ok(next) => curr = next,
                 Err(e) => return Err(e),
             }
@@ -148,16 +154,11 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
 }
 
 #[inline]
-const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize) -> Result<usize, Utf8Error> {
-    const fn subarray<const N: usize>(buf: &[u8], idx: usize) -> Option<[u8; N]> {
-        if buf.len() - idx < N {
-            return None;
-        }
-
-        // SAFETY: checked in previous condition
-        Some(unsafe { *(buf.as_ptr().add(idx) as *const [u8; N]) })
-    }
-
+const fn validate_non_acii_bytes(
+    buf: &[u8],
+    mut curr: usize,
+    end: usize,
+) -> Result<usize, Utf8Error> {
     let prev = curr;
     macro_rules! err {
         ($error_len: expr) => {
@@ -168,25 +169,26 @@ const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize) -> Result<usize, U
         };
     }
 
-    let b0 = buf[curr];
-    match utf8_char_width(b0) {
-        2 => {
-            let Some([_, b1]) = subarray(buf, curr) else {
+    macro_rules! next {
+        () => {{
+            curr += 1;
+            // we needed data, but there was none: error!
+            if curr >= end {
                 err!(None);
-            };
+            }
+            buf[curr]
+        }};
+    }
 
-            if b1 as i8 >= -64 {
+    let byte = buf[curr];
+    match utf8_char_width(byte) {
+        2 => {
+            if next!() as i8 >= -64 {
                 err!(Some(1));
             }
-
-            curr += 2;
         }
         3 => {
-            let Some([_, b1, b2]) = subarray(buf, curr) else {
-                err!(None);
-            };
-
-            match (b0, b1) {
+            match (byte, next!()) {
                 (0xE0, 0xA0..=0xBF)
                 | (0xE1..=0xEC, 0x80..=0xBF)
                 | (0xED, 0x80..=0x9F)
@@ -194,39 +196,29 @@ const fn validate_non_acii_bytes(buf: &[u8], mut curr: usize) -> Result<usize, U
                 _ => err!(Some(1)),
             }
 
-            if b2 as i8 >= -64 {
+            if next!() as i8 >= -64 {
                 err!(Some(2));
             }
-
-            curr += 3;
         }
         4 => {
-            let Some([_, b1, b2, b3]) = subarray(buf, curr) else {
-                err!(None);
-            };
-
-            match (b0, b1) {
+            match (byte, next!()) {
                 (0xF0, 0x90..=0xBF) | (0xF1..=0xF3, 0x80..=0xBF) | (0xF4, 0x80..=0x8F) => {}
                 _ => err!(Some(1)),
             }
-
-            if b2 as i8 >= -64 {
+            if next!() as i8 >= -64 {
                 err!(Some(2));
             }
-
-            if b3 as i8 >= -64 {
+            if next!() as i8 >= -64 {
                 err!(Some(3));
             }
-
-            curr += 4;
         }
         _ => err!(Some(1)),
     }
 
+    curr += 1;
     Ok(curr)
 }
 
-//#[cfg(target_feature = "avx")]
 /// Returns `true` if any one block is not a valid ASCII byte.
 #[inline(always)]
 const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
@@ -255,8 +247,7 @@ const fn has_non_ascii_byte_2x(block: [usize; 2]) -> bool {
     res[0] > 0 || res[1] > 0
 }
 
-/*
-//#[cfg(not(target_feature = "avx"))]
+#[cfg(not(target_arch = "x86_64"))]
 /// Returns `true` if any one block is not a valid ASCII byte.
 #[inline(always)]
 const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
@@ -269,7 +260,7 @@ const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
     }
 
     false
-}*/
+}
 
 /// Returns the number of consecutive ASCII bytes within `block` until the first
 /// non-ASCII byte and `true`, if a non-ASCII byte was found.
