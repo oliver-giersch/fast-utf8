@@ -18,7 +18,7 @@ const SHORT_TEXT_UTF8: &str = "Lörem ipsüm dölör sit ämet.";
 
 #[inline(always)]
 fn fast(buf: &[u8]) -> bool {
-    fast_utf8::validate_utf8(buf)
+    fast_utf8::validate_utf8(buf).is_ok()
 }
 
 #[inline(always)]
