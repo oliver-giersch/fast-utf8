@@ -115,6 +115,30 @@ fn hungarian_246kb(c: &mut Criterion) {
     group.finish();
 }
 
+fn english_406kb(c: &mut Criterion) {
+    const A_ROOM_WITH_A_VIEW: &str = include_str!("../assets/english_406kb.txt");
+    let (text, group_name) = group_name(A_ROOM_WITH_A_VIEW.as_bytes(), "english");
+
+    let mut group = c.benchmark_group(group_name);
+    //group.sampling_mode(criterion::SamplingMode::Flat);
+
+    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
+    group.bench_function("std", |b| b.iter(|| validate(std, text)));
+    group.finish();
+}
+
+fn english_971kb(c: &mut Criterion) {
+    const COUNT_FATHOM: &str = include_str!("../assets/english_971kb.txt");
+    let (text, group_name) = group_name(COUNT_FATHOM.as_bytes(), "english");
+
+    let mut group = c.benchmark_group(group_name);
+    //group.sampling_mode(criterion::SamplingMode::Flat);
+
+    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
+    group.bench_function("std", |b| b.iter(|| validate(std, text)));
+    group.finish();
+}
+
 fn chinese_1mb(c: &mut Criterion) {
     const CHINESE: &str = include_str!("../assets/chinese_1mb.txt");
     let (text, group_name) = group_name(CHINESE.as_bytes(), "chinese");
@@ -189,6 +213,8 @@ criterion_group!(
     benches,
     none_0b,
     english_191kb,
+    english_406kb,
+    english_971kb,
     faust_213kb,
     hungarian_246kb,
     chinese_1mb,
