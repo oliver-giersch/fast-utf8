@@ -24,7 +24,7 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
     const ASCII_BLOCK_4X: usize = 4 * WORD_BYTES;
     const ASCII_BLOCK_2X: usize = 2 * WORD_BYTES;
 
-    const PENALTY_THRESHOLD: usize = 256;
+    const PENALTY_THRESHOLD: usize = 64;
 
     // establish buffer extent
     let (mut curr, end) = (0, buf.len());
@@ -65,33 +65,41 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
                             // SAFETY: we have checked before that there are
                             // still at least `N * size_of::<usize>()` in the
                             // buffer and that the current byte is word-aligned
-                            let block = unsafe { &*(start.add(curr) as *const [usize; $N]) };
-                            if has_non_ascii_byte(block) {
+                            let block = unsafe {
+                                let ptr = start.add(curr) as *const usize;
+                                slice::from_raw_parts(ptr, $N)
+                            };
+                            if has_non_ascii_byte_dyn(block) {
                                 break 'block Some($N);
                             }
 
                             curr += $N * WORD_BYTES;
+                            non_ascii_penalty = non_ascii_penalty.saturating_sub($N * WORD_BYTES);
                         };
                     }
 
-                    if non_ascii_penalty <= PENALTY_THRESHOLD / 2 {
+                    // TODO: not good enough yet, penalty still hits hards in case a non-ASCII block is hit
+                    if non_ascii_penalty == 0 {
                         // check 8-word blocks for non-ASCII bytes
                         while curr < block_end_8x {
-                            block_loop!(8);
-                            non_ascii_penalty = non_ascii_penalty.saturating_sub(8 * WORD_BYTES);
-                        }
+                            let block = unsafe { &*(start.add(curr) as *const [usize; 8]) };
+                            if has_non_ascii_byte_8x(block) {
+                                break 'block Some(8);
+                            }
 
-                        // check 4-word blocks for non-ASCII bytes
-                        while curr < block_end_4x {
-                            block_loop!(4);
-                            non_ascii_penalty = non_ascii_penalty.saturating_sub(4 * WORD_BYTES);
+                            curr += 8 * WORD_BYTES;
+                            //non_ascii_penalty = non_ascii_penalty.saturating_sub(8 * WORD_BYTES);
                         }
+                    }
 
-                        // check 2-word blocks for non-ASCII bytes
-                        while curr < block_end_2x {
-                            block_loop!(2);
-                            non_ascii_penalty = non_ascii_penalty.saturating_sub(2 * WORD_BYTES);
-                        }
+                    // check 4-word blocks for non-ASCII bytes
+                    while curr < block_end_4x {
+                        block_loop!(4);
+                    }
+
+                    // check 2-word blocks for non-ASCII bytes
+                    while curr < block_end_2x {
+                        block_loop!(2);
                     }
 
                     // `(size_of::<usize>() * 2) + (align_of::<usize> - 1)`
@@ -249,6 +257,55 @@ const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
     i = 0;
     while i < N {
         if vector[i] > 0 {
+            return true;
+        }
+        i += 1;
+    }
+
+    false
+}
+
+/// Returns `true` if any one block is not a valid ASCII byte.
+#[inline(always)]
+const fn has_non_ascii_byte_8x(block: &[usize; 8]) -> bool {
+    let res = [
+        block[0] & NONASCII_MASK,
+        block[1] & NONASCII_MASK,
+        block[2] & NONASCII_MASK,
+        block[3] & NONASCII_MASK,
+        block[4] & NONASCII_MASK,
+        block[5] & NONASCII_MASK,
+        block[6] & NONASCII_MASK,
+        block[7] & NONASCII_MASK,
+    ];
+
+    /*res[0] > 0
+    || res[1] > 0
+    || res[2] > 0
+    || res[3] > 0
+    || res[4] > 0
+    || res[5] > 0
+    || res[6] > 0
+    || res[7] > 0*/
+
+    let mut i = 0;
+    while i < 8 {
+        if res[i] > 0 {
+            return true;
+        }
+
+        i += 1;
+    }
+
+    false
+}
+
+// FIXME: much slower for 100% ASCII, much better for <100% ASCII ???
+// (possibly because not auto-vectorized, therefore cheaper to fail...)
+const fn has_non_ascii_byte_dyn(block: &[usize]) -> bool {
+    let mut i = 0;
+    while i < block.len() {
+        if block[i] & NONASCII_MASK > 0 {
             return true;
         }
         i += 1;
