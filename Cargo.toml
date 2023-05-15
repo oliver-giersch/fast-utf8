@@ -3,6 +3,9 @@ name = "fast-utf8"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+stats = []
+
 [[bench]]
 name = "vs_std_criterion"
 harness = false
