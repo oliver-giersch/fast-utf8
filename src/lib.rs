@@ -37,17 +37,51 @@ const ASCII_BLOCK_4X: usize = 4 * WORD_BYTES;
 const ASCII_BLOCK_2X: usize = 2 * WORD_BYTES;
 
 #[inline(never)]
-pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
+pub fn validate_utf8_baseline<const N: usize>(buf: &[u8]) -> Result<(), Utf8Error> {
     /*if buf.len() < 32 {
         todo!()
     } else {
         validate_long(buf)
     }*/
-    validate_long(buf)
+    validate_long_baseline::<N>(buf)
 }
 
 #[inline(always)]
-fn validate_long(buf: &[u8]) -> Result<(), Utf8Error> {
+const fn has_non_ascii_byte_baseline<const N: usize>(mask_block: &[usize; N]) -> bool {
+    let mut i = 0;
+    while i < N {
+        if mask_block[i] > 0 {
+            return true;
+        }
+
+        i += 1;
+    }
+
+    false
+}
+
+#[inline(always)]
+const fn non_ascii_byte_position_baseline<const N: usize>(block: &[usize; N]) -> (usize, bool) {
+    let mut i = 0;
+    while i < N {
+        let ctz = block[i].trailing_zeros() as usize;
+        let byte = ctz / WORD_BYTES;
+
+        if byte != WORD_BYTES {
+            return (byte + (i * WORD_BYTES), true);
+        }
+
+        i += 1;
+    }
+
+    (WORD_BYTES * N, false)
+}
+
+// relatively close to STD implementation, minor improvements, generic block size
+#[inline(always)]
+fn validate_long_baseline<const N: usize>(buf: &[u8]) -> Result<(), Utf8Error> {
+    let ascii_block_size = N * WORD_BYTES;
+
     // establish buffer extent
     let (mut curr, end) = (0, buf.len());
     let start = buf.as_ptr();
@@ -56,11 +90,8 @@ fn validate_long(buf: &[u8]) -> Result<(), Utf8Error> {
 
     // calculate the maximum byte at which a block of size N could begin,
     // without taking alignment into account
-    let block_end_8x = block_end(end, ASCII_BLOCK_8X);
-    let block_end_4x = block_end(end, ASCII_BLOCK_4X);
-    let block_end_2x = block_end(end, ASCII_BLOCK_2X);
-
-    let mut mask_block = [0usize; 8];
+    let block_end = block_end(end, ascii_block_size);
+    let mut mask_block = [0usize; N];
 
     while curr < end {
         if buf[curr] < 128 {
@@ -74,19 +105,22 @@ fn validate_long(buf: &[u8]) -> Result<(), Utf8Error> {
             // check if `curr`'s pointer is word-aligned
             let offset = align_offset.wrapping_sub(curr) % WORD_BYTES;
             if offset == 0 {
-                // check 2-word blocks for non-ASCII bytes
+                // check N-word blocks for non-ASCII bytes
                 let mut has_non_ascii = false;
-                while curr < block_end_2x {
-                    let block = unsafe { &*(start.add(curr) as *const [usize; 2]) };
-                    mask_block[0] = block[0] & NONASCII_MASK;
-                    mask_block[1] = block[1] & NONASCII_MASK;
+                while curr < block_end {
+                    let block = unsafe { &*(start.add(curr) as *const [usize; N]) };
+                    let mut j = 0;
+                    while j < N {
+                        mask_block[j] = block[j] & NONASCII_MASK;
+                        j += 1;
+                    }
 
-                    if has_non_ascii_byte_up_to(&mask_block, 2) {
+                    if has_non_ascii_byte_baseline(&mask_block) {
                         has_non_ascii = true;
                         break;
                     }
 
-                    curr += 2 * WORD_BYTES;
+                    curr += N * WORD_BYTES;
                 }
 
                 // if the block loops were stopped due to a non-ascii byte
@@ -99,14 +133,12 @@ fn validate_long(buf: &[u8]) -> Result<(), Utf8Error> {
                 if has_non_ascii {
                     // calculate the amount of bytes that can be skipped without
                     // having to check them individually
-                    let (skip, non_ascii) = non_ascii_byte_position_up_to(&mask_block, 2);
+                    let (skip, _) = non_ascii_byte_position_baseline(&mask_block);
                     curr += skip;
 
                     // if a non-ASCII byte was found, skip the subsequent
                     // byte-wise loop and go straight back to the main loop
-                    if non_ascii {
-                        continue;
-                    }
+                    continue;
                 }
 
                 // ...otherwise, fall back to byte-wise checks
@@ -145,7 +177,232 @@ fn validate_long(buf: &[u8]) -> Result<(), Utf8Error> {
 }
 
 #[inline(never)]
-pub fn validate_utf8_a(
+pub fn validate_utf8_dynamic(buf: &[u8]) -> Result<(), Utf8Error> {
+    validate_long_dynamic(buf)
+}
+
+const PENALTY_THRESHOLD: usize = 64;
+
+/// Returns `true` if any one block is not a valid ASCII byte.
+#[inline(always)]
+const fn has_non_ascii_byte_8x(block: &[usize; 8]) -> Option<() /*[usize; 8]*/> {
+    let res = [
+        block[0] & NONASCII_MASK,
+        block[1] & NONASCII_MASK,
+        block[2] & NONASCII_MASK,
+        block[3] & NONASCII_MASK,
+        block[4] & NONASCII_MASK,
+        block[5] & NONASCII_MASK,
+        block[6] & NONASCII_MASK,
+        block[7] & NONASCII_MASK,
+    ];
+
+    if res[0] > 0
+        || res[1] > 0
+        || res[2] > 0
+        || res[3] > 0
+        || res[4] > 0
+        || res[5] > 0
+        || res[6] > 0
+        || res[7] > 0
+    {
+        //if (res[0] | res[1] | res[2] | res[3] | res[4] | res[5] | res[6] | res[7]) > 0 {
+        Some(())
+    } else {
+        None
+    }
+}
+
+// FIXME: much slower for 100% ASCII, much better for <100% ASCII ???
+// (possibly because not auto-vectorized, therefore cheaper to fail...)
+const fn has_non_ascii_byte_dyn(block: &[usize]) -> bool {
+    let mut i = 0;
+    while i < block.len() {
+        if block[i] > 0 {
+            return true;
+        }
+        i += 1;
+    }
+
+    false
+}
+
+/// Returns the number of consecutive ASCII bytes within `block` until the first
+/// non-ASCII byte and `true`, if a non-ASCII byte was found.
+///
+/// Returns `block.len() * size_of::<usize>()` and `false`, if all bytes are
+/// ASCII bytes.
+#[inline(always)]
+const fn non_ascii_byte_position(block: &[usize]) -> (usize, bool) {
+    let mut i = 0;
+    while i < block.len() {
+        let ctz = block[i].trailing_zeros() as usize;
+        let byte = ctz / WORD_BYTES;
+
+        if byte != WORD_BYTES {
+            return (byte + (i * WORD_BYTES), true);
+        }
+
+        i += 1;
+    }
+
+    (WORD_BYTES * block.len(), false)
+}
+
+#[inline(always)]
+fn validate_long_dynamic(buf: &[u8]) -> Result<(), Utf8Error> {
+    // establish buffer extent
+    let (mut curr, end) = (0, buf.len());
+    let start = buf.as_ptr();
+    // calculate the byte offset until the first word aligned block
+    let align_offset = start.align_offset(WORD_BYTES);
+
+    // calculate the maximum byte at which a block of size N could begin,
+    // without taking alignment into account
+    let block_end_8x = block_end(end, ASCII_BLOCK_8X);
+    let block_end_4x = block_end(end, ASCII_BLOCK_4X);
+    let block_end_2x = block_end(end, ASCII_BLOCK_2X);
+
+    let mut mask_block = [0usize; 8];
+    let mut non_ascii_penalty: usize = 0;
+
+    while curr < end {
+        if buf[curr] < 128 {
+            // pure byte-wise checks are fastes for ~ <5% ACII characters
+            if non_ascii_penalty > PENALTY_THRESHOLD {
+                curr += 1;
+                non_ascii_penalty -= 1;
+                continue;
+            }
+
+            // `align_offset` can basically only be `usize::MAX` for ZST
+            // pointers, so the first check is almost certainly optimized away
+            if align_offset == usize::MAX {
+                curr += 1;
+                continue;
+            }
+
+            // check if `curr`'s pointer is word-aligned
+            let offset = align_offset.wrapping_sub(curr) % WORD_BYTES;
+            if offset == 0 {
+                let len = 'block: loop {
+                    if non_ascii_penalty == 0 {
+                        // check 8-word blocks for non-ASCII bytes
+                        while curr < block_end_8x {
+                            let block = unsafe { &*(start.add(curr) as *const [usize; 8]) };
+                            if let Some(_) = has_non_ascii_byte_8x(block) {
+                                let mut j = 0;
+                                while j < 8 {
+                                    mask_block[j] = block[j] & NONASCII_MASK;
+                                    j += 1;
+                                }
+
+                                break 'block Some(8);
+                            }
+
+                            curr += 8 * WORD_BYTES;
+                        }
+                    }
+
+                    macro_rules! block_loop {
+                        ($N:expr) => {
+                            // SAFETY: we have checked before that there are
+                            // still at least `N * size_of::<usize>()` in the
+                            // buffer and that the current byte is word-aligned
+                            let block = unsafe {
+                                let ptr = start.add(curr) as *const usize;
+                                slice::from_raw_parts(ptr, $N)
+                            };
+
+                            let mut j = 0;
+                            while (j < $N) {
+                                mask_block[j] = block[j] & NONASCII_MASK;
+                                j += 1;
+                            }
+
+                            if has_non_ascii_byte_dyn(&mask_block[0..$N]) {
+                                break 'block Some($N);
+                            }
+
+                            curr += $N * WORD_BYTES;
+                            non_ascii_penalty = non_ascii_penalty.saturating_sub($N * WORD_BYTES);
+                        };
+                    }
+
+                    //if non_ascii_penalty < PENALTY_THRESHOLD / 2 {
+                    // check 4-word blocks for non-ASCII bytes
+                    while curr < block_end_4x {
+                        block_loop!(4);
+                    }
+                    //} else {
+                    // check 2-word blocks for non-ASCII bytes
+                    /*while curr < block_end_2x {
+                        block_loop!(2);
+                    }*/
+                    //}
+
+                    // `(size_of::<usize>() * 2) + (align_of::<usize> - 1)`
+                    // bytes remain at most
+                    break None;
+                };
+
+                // if the block loops were stopped due to a non-ascii byte
+                // in some block, do another block-wise search using the last
+                // used block-size for the specific byte in the previous block
+                // in order to skip checking all bytes up to that one
+                // individually.
+                // NOTE: this operation does not auto-vectorize well, so it is
+                // done only in case a non-ASCII byte is actually found
+                if let Some(len) = len {
+                    // calculate the amount of bytes that can be skipped without
+                    // having to check them individually
+                    let (skip, _) = non_ascii_byte_position(&mask_block[0..len]);
+                    curr += skip;
+                    non_ascii_penalty += 1;
+
+                    // if a non-ASCII byte was found, skip the subsequent
+                    // byte-wise loop and go straight back to the main loop
+                    continue;
+                }
+
+                // ...otherwise, fall back to byte-wise checks
+                while curr < end && buf[curr] < 128 {
+                    curr += 1;
+                }
+            } else {
+                // byte is < 128 (ASCII), but pointer is not word-aligned, skip
+                // until the loop reaches the next word-aligned block)
+                let mut i = 0;
+                while i < offset {
+                    // no need to check alignment again for every byte, so skip
+                    // up to `offset` valid ASCII bytes if possible
+                    curr += 1;
+
+                    if !(curr < end && buf[curr] < 128) {
+                        break;
+                    }
+
+                    i += 1;
+                }
+            }
+        } else {
+            // non-ASCII case: validate up to 4 bytes, then advance `curr`
+            // accordingly
+            match validate_non_acii_bytes(buf, curr, end) {
+                Ok((next, skip)) => {
+                    non_ascii_penalty += skip;
+                    curr = next;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/*#[inline(never)]
+pub fn validate_utf8_dynamic_old(
     buf: &[u8],
     #[cfg(feature = "stats")] mut stats: Option<&mut Stats>,
 ) -> Result<(), Utf8Error> {
@@ -266,36 +523,24 @@ pub fn validate_utf8_a(
                 // NOTE: this operation does not auto-vectorize well, so it is
                 // done only in case a non-ASCII byte is actually found
                 if let Some(len) = len {
-                    if len >= 0 {
-                        #[cfg(feature = "stats")]
-                        if let Some(stats) = stats.as_mut() {
-                            match len {
-                                8 => stats.failed_8x += 1,
-                                4 => stats.failed_4x += 1,
-                                2 => stats.failed_2x += 1,
-                                _ => {}
-                            }
-                        }
+                    // SAFETY: `curr` has not changed since the last block loop,
+                    // so it still points at a byte marking the beginning of a
+                    // word-sized block of the given `len`
+                    let block = unsafe {
+                        let ptr = start.add(curr) as *const usize;
+                        slice::from_raw_parts(ptr, len)
+                    };
 
-                        // SAFETY: `curr` has not changed since the last block loop,
-                        // so it still points at a byte marking the beginning of a
-                        // word-sized block of the given `len`
-                        let block = unsafe {
-                            let ptr = start.add(curr) as *const usize;
-                            slice::from_raw_parts(ptr, len)
-                        };
+                    // calculate the amount of bytes that can be skipped without
+                    // having to check them individually
+                    let (skip, non_ascii) = non_ascii_byte_position(block);
+                    curr += skip;
+                    non_ascii_penalty += len; // 1: exponential penalty
 
-                        // calculate the amount of bytes that can be skipped without
-                        // having to check them individually
-                        let (skip, non_ascii) = non_ascii_byte_position(block);
-                        curr += skip;
-                        non_ascii_penalty += len; // 1: exponential penalty
-
-                        // if a non-ASCII byte was found, skip the subsequent
-                        // byte-wise loop and go straight back to the main loop
-                        if non_ascii {
-                            continue;
-                        }
+                    // if a non-ASCII byte was found, skip the subsequent
+                    // byte-wise loop and go straight back to the main loop
+                    if non_ascii {
+                        continue;
                     }
                 }
 
@@ -343,8 +588,9 @@ pub fn validate_utf8_a(
     }
 
     Ok(())
-}
+}*/
 
+/// Used by all variants, validates non-ascii bytes, identical to STD
 #[inline(always)]
 const fn validate_non_acii_bytes(
     buf: &[u8],
@@ -412,20 +658,7 @@ const fn validate_non_acii_bytes(
     Ok((curr, width))
 }
 
-#[inline(always)]
-const fn has_non_ascii_byte_up_to(block: &[usize; 8], len: usize) -> bool {
-    let mut i = 0;
-    while i < len {
-        if block[i] > 0 {
-            return true;
-        }
-
-        i += 1;
-    }
-
-    false
-}
-
+/*
 /// Returns `true` if any one block is not a valid ASCII byte.
 #[inline(always)]
 const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
@@ -446,38 +679,7 @@ const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
     }
 
     false
-}
-
-/// Returns `true` if any one block is not a valid ASCII byte.
-#[inline(always)]
-const fn has_non_ascii_byte_8x(block: &[usize; 8]) -> bool {
-    let res = [
-        block[0] & NONASCII_MASK,
-        block[1] & NONASCII_MASK,
-        block[2] & NONASCII_MASK,
-        block[3] & NONASCII_MASK,
-        block[4] & NONASCII_MASK,
-        block[5] & NONASCII_MASK,
-        block[6] & NONASCII_MASK,
-        block[7] & NONASCII_MASK,
-    ];
-
-    (res[0] | res[1] | res[2] | res[3] | res[4] | res[5] | res[6] | res[7]) > 0
-}
-
-// FIXME: much slower for 100% ASCII, much better for <100% ASCII ???
-// (possibly because not auto-vectorized, therefore cheaper to fail...)
-const fn has_non_ascii_byte_dyn(block: &[usize]) -> bool {
-    let mut i = 0;
-    while i < block.len() {
-        if block[i] & NONASCII_MASK > 0 {
-            return true;
-        }
-        i += 1;
-    }
-
-    false
-}
+}*/
 
 //#[inline(always)]
 //const fn has_non_ascii_byte_2x(block: [usize; 2]) -> bool {
@@ -498,46 +700,6 @@ const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
     }
 
     false
-}
-
-#[inline(always)]
-const fn non_ascii_byte_position_up_to(block: &[usize; 8], len: usize) -> (usize, bool) {
-    let mut i = 0;
-    while i < len {
-        let ctz = block[i].trailing_zeros() as usize;
-        let byte = ctz / WORD_BYTES;
-
-        if byte != WORD_BYTES {
-            return (byte + (i * WORD_BYTES), true);
-        }
-
-        i += 1;
-    }
-
-    (WORD_BYTES * len, false)
-}
-
-/// Returns the number of consecutive ASCII bytes within `block` until the first
-/// non-ASCII byte and `true`, if a non-ASCII byte was found.
-///
-/// Returns `block.len() * size_of::<usize>()` and `false`, if all bytes are
-/// ASCII bytes.
-#[inline(always)]
-const fn non_ascii_byte_position(block: &[usize]) -> (usize, bool) {
-    let mut i = 0;
-    while i < block.len() {
-        let mask = block[i] & NONASCII_MASK;
-        let ctz = mask.trailing_zeros() as usize;
-        let byte = ctz / WORD_BYTES;
-
-        if byte != WORD_BYTES {
-            return (byte + (i * WORD_BYTES), true);
-        }
-
-        i += 1;
-    }
-
-    (WORD_BYTES * block.len(), false)
 }
 
 #[inline(always)]
@@ -579,11 +741,13 @@ const fn utf8_char_width(byte: u8) -> usize {
 mod tests {
     const VERY_LONG_TEXT_UTF: &str = include_str!("../assets/text_utf8");
 
+    use super::validate_long_dynamic as validate_utf8;
+
     #[cfg(not(feature = "stats"))]
     #[test]
     fn invalid_utf8() {
         assert_eq!(
-            super::validate_utf8(b"A\xC3\xA9 \xF1 "),
+            validate_utf8(b"A\xC3\xA9 \xF1 "),
             Err(super::Utf8Error {
                 valid_up_to: 4,
                 error_len: Some(1)
@@ -591,7 +755,7 @@ mod tests {
         );
 
         assert_eq!(
-            super::validate_utf8(b"A\xC3\xA9 \xF1\x80 "),
+            validate_utf8(b"A\xC3\xA9 \xF1\x80 "),
             Err(super::Utf8Error {
                 valid_up_to: 4,
                 error_len: Some(2)
@@ -602,7 +766,7 @@ mod tests {
     #[cfg(not(feature = "stats"))]
     #[test]
     fn validate_mostly_ascii() {
-        assert!(super::validate_utf8(VERY_LONG_TEXT_UTF.as_bytes()).is_ok());
+        assert!(validate_utf8(VERY_LONG_TEXT_UTF.as_bytes()).is_ok());
     }
 
     #[cfg(not(feature = "stats"))]
@@ -611,14 +775,14 @@ mod tests {
         let mut vec = Vec::from(VERY_LONG_TEXT_UTF);
         vec.push(0xFF);
 
-        assert_eq!(super::validate_utf8(&vec).is_ok(), false);
+        assert_eq!(validate_utf8(&vec).is_ok(), false);
     }
 
     #[cfg(not(feature = "stats"))]
     #[test]
     fn validate_utf() {
-        assert!(super::validate_utf8(b"Lorem ipsum dolor sit amet.").is_ok());
-        assert!(super::validate_utf8("Lörem ipsüm dölör sit ämet.".as_bytes()).is_ok());
+        assert!(validate_utf8(b"Lorem ipsum dolor sit amet.").is_ok());
+        assert!(validate_utf8("Lörem ipsüm dölör sit ämet.".as_bytes()).is_ok());
     }
 
     #[cfg(not(feature = "stats"))]
@@ -664,14 +828,14 @@ mod tests {
     #[test]
     fn faust() {
         const FAUST: &str = include_str!("../assets/faust_213kb.txt");
-        assert!(super::validate_utf8(FAUST.as_bytes()).is_ok());
+        assert!(validate_utf8(FAUST.as_bytes()).is_ok());
     }
 
     #[cfg(not(feature = "stats"))]
     #[test]
     fn chinese() {
         const CHINESE: &str = include_str!("../assets/chinese_1mb.txt");
-        assert!(super::validate_utf8(CHINESE.as_bytes()).is_ok());
+        assert!(validate_utf8(CHINESE.as_bytes()).is_ok());
     }
 
     #[cfg(feature = "stats")]
