@@ -112,13 +112,17 @@ fn validate_long_baseline<const N: usize>(buf: &[u8]) -> Result<(), Utf8Error> {
                     let mut j = 0;
                     while j < N {
                         mask_block[j] = block[j] & NONASCII_MASK;
+                        if mask_block[j] > 0 {
+                            curr += j * WORD_BYTES;
+                            break;
+                        }
                         j += 1;
                     }
 
-                    if has_non_ascii_byte_baseline(&mask_block) {
+                    /*if has_non_ascii_byte_baseline(&mask_block) {
                         has_non_ascii = true;
                         break;
-                    }
+                    }*/
 
                     curr += N * WORD_BYTES;
                 }
@@ -185,7 +189,7 @@ const PENALTY_THRESHOLD: usize = 64;
 
 /// Returns `true` if any one block is not a valid ASCII byte.
 #[inline(always)]
-const fn has_non_ascii_byte_8x(block: &[usize; 8]) -> Option<() /*[usize; 8]*/> {
+const fn has_non_ascii_byte_8x(block: &[usize; 8]) -> bool {
     let res = [
         block[0] & NONASCII_MASK,
         block[1] & NONASCII_MASK,
@@ -197,7 +201,7 @@ const fn has_non_ascii_byte_8x(block: &[usize; 8]) -> Option<() /*[usize; 8]*/> 
         block[7] & NONASCII_MASK,
     ];
 
-    if res[0] > 0
+    res[0] > 0
         || res[1] > 0
         || res[2] > 0
         || res[3] > 0
@@ -205,12 +209,6 @@ const fn has_non_ascii_byte_8x(block: &[usize; 8]) -> Option<() /*[usize; 8]*/> 
         || res[5] > 0
         || res[6] > 0
         || res[7] > 0
-    {
-        //if (res[0] | res[1] | res[2] | res[3] | res[4] | res[5] | res[6] | res[7]) > 0 {
-        Some(())
-    } else {
-        None
-    }
 }
 
 // FIXME: much slower for 100% ASCII, much better for <100% ASCII ???
@@ -290,7 +288,7 @@ fn validate_long_dynamic(buf: &[u8]) -> Result<(), Utf8Error> {
                         // check 8-word blocks for non-ASCII bytes
                         while curr < block_end_8x {
                             let block = unsafe { &*(start.add(curr) as *const [usize; 8]) };
-                            if let Some(_) = has_non_ascii_byte_8x(block) {
+                            if has_non_ascii_byte_8x(block) {
                                 let mut j = 0;
                                 while j < 8 {
                                     mask_block[j] = block[j] & NONASCII_MASK;
