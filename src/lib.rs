@@ -61,19 +61,23 @@ const fn has_non_ascii_byte_baseline<const N: usize>(mask_block: &[usize; N]) ->
 }
 
 #[inline(always)]
-const unsafe fn non_ascii_byte_position_baseline<const N: usize>(block: &[usize; N]) -> usize {
+const unsafe fn non_ascii_byte_position_baseline<const N: usize>(mask_block: &[usize; N]) -> usize {
+    const WORD_BITS: usize = 8 * WORD_BYTES;
+
     let mut i = 0;
     while i < N {
-        let ctz = block[i].trailing_zeros() as usize;
-        let byte = ctz / WORD_BYTES;
-
-        if byte != WORD_BYTES {
+        // number of trailing zeroes in a word is equivalent to the number of
+        // valid ASCII "nibbles"
+        let ctz = mask_block[i].trailing_zeros() as usize;
+        if ctz != WORD_BITS {
+            let byte = ctz / WORD_BYTES;
             return byte + (i * WORD_BYTES);
         }
 
         i += 1;
     }
 
+    // SAFETY: presence of a non-ASCII byte is required as function invariant
     unsafe { hint::unreachable_unchecked() }
 }
 
@@ -722,7 +726,7 @@ const fn utf8_char_width(byte: u8) -> usize {
 
 #[cfg(test)]
 mod tests {
-    const VERY_LONG_TEXT_UTF: &str = include_str!("../assets/text_utf8");
+    const GERMAN_UTF8_16KB: &str = include_str!("../assets/german_16kb.txt");
 
     use super::validate_long_dynamic as validate_utf8;
 
@@ -769,14 +773,14 @@ mod tests {
     #[cfg(not(feature = "stats"))]
     #[test]
     fn validate_mostly_ascii() {
-        assert!(validate_utf8(VERY_LONG_TEXT_UTF.as_bytes()).is_ok());
-        assert!(validate_long_baseline_8x(VERY_LONG_TEXT_UTF.as_bytes()).is_ok());
+        assert!(validate_utf8(GERMAN_UTF8_16KB.as_bytes()).is_ok());
+        assert!(validate_long_baseline_8x(GERMAN_UTF8_16KB.as_bytes()).is_ok());
     }
 
     #[cfg(not(feature = "stats"))]
     #[test]
     fn validate_invalid() {
-        let mut vec = Vec::from(VERY_LONG_TEXT_UTF);
+        let mut vec = Vec::from(GERMAN_UTF8_16KB);
         vec.push(0xFF);
 
         assert_eq!(validate_utf8(&vec).is_ok(), false);

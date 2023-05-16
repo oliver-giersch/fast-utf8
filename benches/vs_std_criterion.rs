@@ -13,7 +13,6 @@ use criterion::{criterion_group, criterion_main, BenchmarkGroup, Criterion};
 //Nullam commodo dolor non est aliquam, at pulvinar nisi consequat. In convallis nunc sit amet nisl vulputate mollis et ut dui. Donec eget neque ac urna pharetra hendrerit. Fusce consequat ipsum id metus mollis facilisis. Fusce at fringilla dui. Morbi sollicitudin tristique ante at malesuada. Sed porttitor sapien sed urna cursus rhoncus. Orci varius natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Morbi et aliquet quam, ac imperdiet odio. Proin et urna velit. Suspendisse accumsan metus dui, ac mollis massa blandit non. Curabitur pulvinar rhoncus facilisis.
 //Aenean purus felis, dictum id pharetra eget, auctor ut magna. Vestibulum eu purus non erat malesuada fermentum eget vitae mi. Proin malesuada sem at accumsan facilisis. Curabitur posuere sem non eros condimentum aliquam. Fusce rutrum rhoncus augue, nec pretium tellus mollis et. Proin nec lorem ullamcorper turpis imperdiet consequat sit amet a quam. Morbi commodo ex justo, eu auctor nisl rutrum consectetur. Sed consequat hendrerit eros et tempor. Vestibulum pulvinar aliquet viverra. Maecenas commodo lacus sed congue laoreet. Orci varius natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Suspendisse imperdiet posuere justo et pretium. Sed interdum nisl sapien, ac rhoncus mauris vehicula eu.";
 //const MEDIUM_TEXT: &str = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla et eros porta, tincidunt est vitae, pulvinar neque. Phasellus enim nulla, finibus vitae odio ac, iaculis pharetra mi. Aliquam sit amet enim nec felis ornare sagittis vel ut dui. Quisque vitae rhoncus sapien. Donec malesuada enim non lacus bibendum, et suscipit nunc vehicula. Proin eget nunc eget libero mattis elementum. Donec justo quam, scelerisque at erat a, consectetur faucibus risus. Fusce quis aliquet tellus. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras aliquet tincidunt euismod.";
-//const SHORT_TEXT: &str = "Lorem ipsum dolor sit amet.";
 //const SHORT_TEXT_UTF8: &str = "Lörem ipsüm dölör sit ämet.";
 
 #[inline(always)]
@@ -41,15 +40,12 @@ fn std(buf: &[u8]) -> bool {
     std::str::from_utf8(buf).is_ok()
 }
 
-fn group_name<'a>(bytes: &'a [u8], language: &'static str) -> (&'a [u8], String) {
-    (
-        bytes,
-        format!(
-            "{language}/{}/{}%ascii",
-            text_size(bytes),
-            ascii_ratio(bytes)
-        ),
-    )
+fn bench_group(c: &mut Criterion, language: &'static str, text: &[u8]) {
+    let group_name = format!("{language}/{}/{}%ascii", text_size(text), ascii_ratio(text));
+
+    let mut group = c.benchmark_group(group_name);
+    validate_group(&mut group, text);
+    group.finish();
 }
 
 fn text_size(bytes: &[u8]) -> String {
@@ -116,71 +112,76 @@ fn validate_group(group: &mut BenchmarkGroup<'_, criterion::measurement::WallTim
 }
 
 fn none_0b(c: &mut Criterion) {
-    let (text, group_name) = group_name(b"", "none");
+    bench_group(c, "none", b"");
+}
 
-    let mut group = c.benchmark_group(group_name);
-    validate_group(&mut group, text);
-    group.finish();
+fn latin_27b(c: &mut Criterion) {
+    bench_group(c, "latin", b"Lorem ipsum dolor sit amet.");
+}
+
+fn mixed_14kb(c: &mut Criterion) {
+    const DEMO: &str = include_str!("../assets/demo_14kb.txt");
+    bench_group(c, "mixed", DEMO.as_bytes());
+}
+
+fn german_16kb(c: &mut Criterion) {
+    const GERMAN: &str = include_str!("../assets/german_16kb.txt");
+    bench_group(c, "german", GERMAN.as_bytes());
+}
+
+fn greek_57kb(c: &mut Criterion) {
+    const GREEK: &str = include_str!("../assets/greek_57kb.txt");
+    bench_group(c, "greek", GREEK.as_bytes());
+}
+
+fn german_100kb(c: &mut Criterion) {
+    const GERMAN: &str = include_str!("../assets/german_100kb.txt");
+    bench_group(c, "german", GERMAN.as_bytes());
+}
+
+fn greek_152kb(c: &mut Criterion) {
+    const GREEK: &str = include_str!("../assets/greek_152kb.txt");
+    bench_group(c, "greek", GREEK.as_bytes());
+}
+
+fn english_191kb(c: &mut Criterion) {
+    const HAMLET: &str = include_str!("../assets/hamlet.txt");
+    bench_group(c, "english", HAMLET.as_bytes());
 }
 
 fn faust_213kb(c: &mut Criterion) {
     const FAUST: &str = include_str!("../assets/faust_213kb.txt");
-    let (text, group_name) = group_name(FAUST.as_bytes(), "german");
-
-    let mut group = c.benchmark_group(group_name);
-    validate_group(&mut group, text);
-    group.finish();
+    bench_group(c, "german", FAUST.as_bytes());
 }
 
 fn hungarian_246kb(c: &mut Criterion) {
     const HUNGARIAN: &str = include_str!("../assets/hungarian_246kb.txt");
-    let (text, group_name) = group_name(HUNGARIAN.as_bytes(), "hungarian");
-
-    let mut group = c.benchmark_group(group_name);
-    validate_group(&mut group, text);
-    group.finish();
+    bench_group(c, "hungarian", HUNGARIAN.as_bytes());
 }
 
 fn english_406kb(c: &mut Criterion) {
     const A_ROOM_WITH_A_VIEW: &str = include_str!("../assets/english_406kb.txt");
-    let (text, group_name) = group_name(A_ROOM_WITH_A_VIEW.as_bytes(), "english");
-
-    let mut group = c.benchmark_group(group_name);
-    //group.sampling_mode(criterion::SamplingMode::Flat);
-
-    validate_group(&mut group, text);
-    group.finish();
+    bench_group(c, "english", A_ROOM_WITH_A_VIEW.as_bytes());
 }
 
 fn english_971kb(c: &mut Criterion) {
     const COUNT_FATHOM: &str = include_str!("../assets/english_971kb.txt");
-    let (text, group_name) = group_name(COUNT_FATHOM.as_bytes(), "english");
+    bench_group(c, "english", COUNT_FATHOM.as_bytes());
+}
 
-    let mut group = c.benchmark_group(group_name);
-    //group.sampling_mode(criterion::SamplingMode::Flat);
-
-    validate_group(&mut group, text);
-    group.finish();
+fn german_978kb(c: &mut Criterion) {
+    const GERMAN: &str = include_str!("../assets/german_978kb.txt");
+    bench_group(c, "german", GERMAN.as_bytes());
 }
 
 fn chinese_1mb(c: &mut Criterion) {
     const CHINESE: &str = include_str!("../assets/chinese_1mb.txt");
-    let (text, group_name) = group_name(CHINESE.as_bytes(), "chinese");
-
-    let mut group = c.benchmark_group(group_name);
-    //group.sampling_mode(criterion::SamplingMode::Flat);
-
-    validate_group(&mut group, text);
-    group.finish();
+    bench_group(c, "chinese", CHINESE.as_bytes());
 }
 
-fn english_191kb(c: &mut Criterion) {
-    const ENGLISH: &str = include_str!("../assets/hamlet.txt");
-    let (text, group_name) = group_name(ENGLISH.as_bytes(), "english");
-
-    let mut group = c.benchmark_group(group_name);
-    validate_group(&mut group, text);
-    group.finish();
+fn greek_1_5mb(c: &mut Criterion) {
+    const GREEK: &str = include_str!("../assets/greek_1_5mb.txt");
+    bench_group(c, "greek", GREEK.as_bytes());
 }
 
 /*fn hamlet(c: &mut Criterion) {
@@ -230,12 +231,20 @@ fn short_utf8(c: &mut Criterion) {
 criterion_group!(
     benches,
     none_0b,
+    latin_27b,
+    mixed_14kb,
+    german_16kb,
+    greek_57kb,
+    german_100kb,
+    greek_152kb,
     english_191kb,
     english_406kb,
     english_971kb,
+    german_978kb,
     faust_213kb,
     hungarian_246kb,
     chinese_1mb,
+    greek_1_5mb,
     //hamlet,
     //mostly_ascii,
     //long,
