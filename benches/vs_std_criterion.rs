@@ -86,8 +86,8 @@ fn validate(f: fn(&[u8]) -> bool, text: &[u8]) {
 fn validate_group(group: &mut BenchmarkGroup<'_, criterion::measurement::WallTime>, text: &[u8]) {
     //group.bench_function("fast-dynamic", |b| b.iter(|| validate(fast_dynamic, text)));
     group.bench_function("fast-2x", |b| b.iter(|| validate(fast_baseline_2x, text)));
-    group.bench_function("fast-4x", |b| b.iter(|| validate(fast_baseline_4x, text)));
-    group.bench_function("fast-8x", |b| b.iter(|| validate(fast_baseline_8x, text)));
+    //group.bench_function("fast-4x", |b| b.iter(|| validate(fast_baseline_4x, text)));
+    //group.bench_function("fast-8x", |b| b.iter(|| validate(fast_baseline_8x, text)));
     group.bench_function("std", |b| b.iter(|| validate(std, text)));
 }
 
@@ -114,6 +114,11 @@ fn german_16kb(c: &mut Criterion) {
     bench_group(c, "german", GERMAN.as_bytes());
 }
 
+fn hungarian_52kb(c: &mut Criterion) {
+    const HUNGARIAN: &str = include_str!("../assets/hungarian_52kb.txt");
+    bench_group(c, "hungarian", HUNGARIAN.as_bytes());
+}
+
 fn greek_57kb(c: &mut Criterion) {
     const GREEK: &str = include_str!("../assets/greek_57kb.txt");
     bench_group(c, "greek", GREEK.as_bytes());
@@ -122,6 +127,11 @@ fn greek_57kb(c: &mut Criterion) {
 fn german_100kb(c: &mut Criterion) {
     const GERMAN: &str = include_str!("../assets/german_100kb.txt");
     bench_group(c, "german", GERMAN.as_bytes());
+}
+
+fn hungarian_104kb(c: &mut Criterion) {
+    const HUNGARIAN: &str = include_str!("../assets/hungarian_104kb.txt");
+    bench_group(c, "hungarian", HUNGARIAN.as_bytes());
 }
 
 fn greek_152kb(c: &mut Criterion) {
@@ -149,6 +159,21 @@ fn english_406kb(c: &mut Criterion) {
     bench_group(c, "english", A_ROOM_WITH_A_VIEW.as_bytes());
 }
 
+fn spanish_414kb(c: &mut Criterion) {
+    const SPANISH: &str = include_str!("../assets/spanish_414kb.txt");
+    bench_group(c, "spanish", SPANISH.as_bytes());
+}
+
+fn hungarian_427kb(c: &mut Criterion) {
+    const HUNGARIAN: &str = include_str!("../assets/hungarian_427kb.txt");
+    bench_group(c, "hungarian", HUNGARIAN.as_bytes());
+}
+
+fn hungarian_889kb(c: &mut Criterion) {
+    const HUNGARIAN: &str = include_str!("../assets/hungarian_889kb.txt");
+    bench_group(c, "hungarian", HUNGARIAN.as_bytes());
+}
+
 fn english_971kb(c: &mut Criterion) {
     const COUNT_FATHOM: &str = include_str!("../assets/english_971kb.txt");
     bench_group(c, "english", COUNT_FATHOM.as_bytes());
@@ -164,54 +189,15 @@ fn chinese_1mb(c: &mut Criterion) {
     bench_group(c, "chinese", CHINESE.as_bytes());
 }
 
+fn spanish_1_1mb(c: &mut Criterion) {
+    const SPANISH: &str = include_str!("../assets/spanish_1_1mb.txt");
+    bench_group(c, "spanish", SPANISH.as_bytes());
+}
+
 fn greek_1_5mb(c: &mut Criterion) {
     const GREEK: &str = include_str!("../assets/greek_1_5mb.txt");
     bench_group(c, "greek", GREEK.as_bytes());
 }
-
-/*fn hamlet(c: &mut Criterion) {
-    let text = HAMLET.as_bytes();
-    let mut group = c.benchmark_group("hamlet");
-    validate_group(&mut group, text);
-    group.finish();
-}
-
-fn mostly_ascii(c: &mut Criterion) {
-    let text = MOSTLY_ASCII.as_bytes();
-    let mut group = c.benchmark_group("mostly-ascii");
-    validate_group(&mut group, text);
-    group.finish();
-}
-
-fn long(c: &mut Criterion) {
-    let text = LONG_TEXT.as_bytes();
-    let mut group = c.benchmark_group("long");
-    validate_group(&mut group, text);
-    group.finish();
-}
-
-fn medium(c: &mut Criterion) {
-    let text = MEDIUM_TEXT.as_bytes();
-    let mut group = c.benchmark_group("medium");
-    validate_group(&mut group, text);
-    group.finish();
-}
-
-fn short(c: &mut Criterion) {
-    let text = SHORT_TEXT.as_bytes();
-    let mut group = c.benchmark_group("short");
-    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
-    group.bench_function("std", |b| b.iter(|| validate(std, text)));
-    group.finish();
-}
-
-fn short_utf8(c: &mut Criterion) {
-    let text = SHORT_TEXT_UTF8.as_bytes();
-    let mut group = c.benchmark_group("short-utf8");
-    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
-    group.bench_function("std", |b| b.iter(|| validate(std, text)));
-    group.finish();
-}*/
 
 criterion_group!(
     benches,
@@ -220,22 +206,22 @@ criterion_group!(
     latin_27b,
     mixed_14kb,
     german_16kb,
+    hungarian_52kb,
     greek_57kb,
     german_100kb,
+    hungarian_104kb,
     greek_152kb,
     english_191kb,
     english_406kb,
+    spanish_414kb,
+    hungarian_427kb,
+    hungarian_889kb,
     english_971kb,
     german_978kb,
     faust_213kb,
     hungarian_246kb,
     chinese_1mb,
+    spanish_1_1mb,
     greek_1_5mb,
-    //hamlet,
-    //mostly_ascii,
-    //long,
-    //medium,
-    //short,
-    //short_utf8
 );
 criterion_main!(benches);
