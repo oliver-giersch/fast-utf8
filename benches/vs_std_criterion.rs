@@ -4,10 +4,10 @@ use criterion::{criterion_group, criterion_main, BenchmarkGroup, Criterion};
 
 #[inline(always)]
 fn fast_baseline_2x(buf: &[u8]) -> bool {
-    fast_utf8::validate_utf8_baseline::<2>(buf).is_ok()
+    fast_utf8::validate_utf8_baseline(buf).is_ok()
 }
 
-#[inline(always)]
+/*#[inline(always)]
 fn fast_baseline_4x(buf: &[u8]) -> bool {
     fast_utf8::validate_utf8_baseline::<4>(buf).is_ok()
 }
@@ -15,7 +15,7 @@ fn fast_baseline_4x(buf: &[u8]) -> bool {
 #[inline(always)]
 fn fast_baseline_8x(buf: &[u8]) -> bool {
     fast_utf8::validate_utf8_baseline::<8>(buf).is_ok()
-}
+}*/
 
 #[inline(always)]
 fn std(buf: &[u8]) -> bool {

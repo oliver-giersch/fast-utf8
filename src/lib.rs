@@ -32,18 +32,20 @@ pub struct Stats {
 }
 
 #[inline(never)]
-pub fn validate_utf8_baseline<const N: usize>(buf: &[u8]) -> Result<(), Utf8Error> {
+pub fn validate_utf8_baseline(buf: &[u8]) -> Result<(), Utf8Error> {
     /*if buf.len() < 32 {
         todo!()
     } else {
         validate_long(buf)
     }*/
-    validate_long_baseline::<N>(buf)
+    validate_long_baseline(buf)
 }
 
 // relatively close to STD implementation, minor improvements, generic block size
 #[inline(always)]
-fn validate_long_baseline<const _N: usize>(buf: &[u8]) -> Result<(), Utf8Error> {
+fn validate_long_baseline(buf: &[u8]) -> Result<(), Utf8Error> {
+    const N: usize = 2;
+
     // establish byte buffer bounds
     let (mut curr, end) = (0, buf.len());
     let start = buf.as_ptr();
@@ -52,11 +54,10 @@ fn validate_long_baseline<const _N: usize>(buf: &[u8]) -> Result<(), Utf8Error> 
 
     // calculate the maximum byte at which a block of size N could begin,
     // without taking alignment into account
-    let block_end_2x = block_end(end, 2 * WORD_BYTES);
-    let block_end_8x = block_end(end, 8 * WORD_BYTES);
-    let mut masked_words = [0usize; 8];
+    let block_end_n = block_end(end, N * WORD_BYTES);
+    let mut masked_words = [0usize; N];
 
-    let mut penalty: usize = 0;
+    //let mut penalty: usize = 0;
 
     while curr < end {
         if buf[curr] < 128 {
@@ -70,8 +71,8 @@ fn validate_long_baseline<const _N: usize>(buf: &[u8]) -> Result<(), Utf8Error> 
             // check if `curr`'s pointer is word-aligned
             let offset = align_offset.wrapping_sub(curr) % WORD_BYTES;
             if offset == 0 {
-                let mut has_non_ascii = 0;
-                if penalty == 0 {
+                let mut has_non_ascii = false;
+                /*if penalty == 0 {
                     while curr < block_end_8x {
                         let block = unsafe { &*(start.add(curr) as *const [usize; 8]) };
                         if has_non_ascii_byte_8x(block) {
@@ -94,38 +95,34 @@ fn validate_long_baseline<const _N: usize>(buf: &[u8]) -> Result<(), Utf8Error> 
 
                         curr += 8 * WORD_BYTES;
                     }
-                }
+                }*/
 
                 // check N-word sized blocks for non-ASCII bytes
                 // word-alignment has been determined at this point, so only
                 // the buffer length needs to be taken into consideration
-                while curr < block_end_2x {
+                while curr < block_end_n {
                     // SAFETY: the loop condition guarantees that there is
                     // sufficient room for N word-blocks in the buffer
-                    let block = unsafe { &*(start.add(curr) as *const [usize; 2]) };
-                    let mut i = 0;
-                    while i < 2 {
-                        masked_words[i] = block[i] & NONASCII_MASK;
-                        i += 1;
-                    }
+                    let block = unsafe { &*(start.add(curr) as *const [usize; N]) };
+                    masked_words[0] = block[0] & NONASCII_MASK;
+                    masked_words[1] = block[1] & NONASCII_MASK;
 
                     if has_non_ascii_byte(&masked_words) {
-                        has_non_ascii = 2;
+                        has_non_ascii = true;
                         break;
                     }
 
-                    curr += 2 * WORD_BYTES;
-                    penalty = penalty.saturating_sub(2);
+                    curr += N * WORD_BYTES;
                 }
 
                 // if the block loop was stopped due to a non-ascii byte
                 // in some word, do another word-wise search using the same word
                 // buffer used before in order to avoid having to checking all
                 // bytes individually again.
-                if has_non_ascii > 0 {
+                if has_non_ascii {
                     // calculate the amount of bytes that can be skipped without
                     // having to check them individually
-                    let skip = unsafe { non_ascii_byte_position(&masked_words, has_non_ascii) };
+                    let skip = unsafe { non_ascii_byte_position(&masked_words) };
                     curr += skip as usize;
                     continue;
                 }
@@ -154,9 +151,7 @@ fn validate_long_baseline<const _N: usize>(buf: &[u8]) -> Result<(), Utf8Error> 
             // non-ASCII case: validate up to 4 bytes, then advance `curr`
             // accordingly
             match validate_non_acii_bytes(buf, curr, end) {
-                Ok((next, _)) => {
-                    curr = next;
-                }
+                Ok(next) => curr = next,
                 Err(e) => return Err(e),
             }
         }
@@ -189,7 +184,7 @@ const fn has_non_ascii_byte_8x(block: &[usize; 8]) -> bool {
 }
 
 #[inline(always)]
-const fn has_non_ascii_byte(masked_words: &[usize; 8]) -> bool {
+const fn has_non_ascii_byte(masked_words: &[usize; 2]) -> bool {
     masked_words[0] > 0 || masked_words[1] > 0
 }
 
@@ -207,9 +202,9 @@ const fn has_non_ascii_byte_nx<const N: usize>(masked_words: &[usize; 8]) -> boo
 
 #[inline(always)]
 #[track_caller]
-const unsafe fn non_ascii_byte_position(mask_block: &[usize; 8], len: usize) -> u32 {
+const unsafe fn non_ascii_byte_position(mask_block: &[usize; 2]) -> u32 {
     let mut i = 0;
-    while i < len {
+    while i < 2 {
         // number of trailing zeroes in a word is equivalent to the number of
         // valid ASCII "nibbles"
         let ctz = mask_block[i].trailing_zeros();
@@ -222,8 +217,7 @@ const unsafe fn non_ascii_byte_position(mask_block: &[usize; 8], len: usize) -> 
     }
 
     // SAFETY: presence of a non-ASCII byte is required as function invariant
-    unreachable!()
-    //unsafe { hint::unreachable_unchecked() }
+    unsafe { hint::unreachable_unchecked() }
 }
 
 /// Used by all variants, validates non-ascii bytes, identical to STD
@@ -232,7 +226,7 @@ const fn validate_non_acii_bytes(
     buf: &[u8],
     mut curr: usize,
     end: usize,
-) -> Result<(usize, usize), Utf8Error> {
+) -> Result<usize, Utf8Error> {
     let prev = curr;
     macro_rules! err {
         ($error_len: expr) => {
@@ -291,7 +285,7 @@ const fn validate_non_acii_bytes(
     }
 
     curr += 1;
-    Ok((curr, width))
+    Ok(curr)
 }
 
 #[inline(always)]
@@ -333,13 +327,7 @@ const fn utf8_char_width(byte: u8) -> usize {
 mod tests {
     const GERMAN_UTF8_16KB: &str = include_str!("../assets/german_16kb.txt");
 
-    fn validate_utf8(buf: &[u8]) -> Result<(), super::Utf8Error> {
-        super::validate_utf8_baseline::<2>(buf)
-    }
-
-    fn validate_long_baseline_8x(buf: &[u8]) -> Result<(), super::Utf8Error> {
-        super::validate_utf8_baseline::<8>(buf)
-    }
+    use super::validate_utf8_baseline as validate_utf8;
 
     #[cfg(not(feature = "stats"))]
     #[test]
@@ -353,23 +341,7 @@ mod tests {
         );
 
         assert_eq!(
-            validate_long_baseline_8x(b"A\xC3\xA9 \xF1 "),
-            Err(super::Utf8Error {
-                valid_up_to: 4,
-                error_len: Some(1)
-            })
-        );
-
-        assert_eq!(
             validate_utf8(b"A\xC3\xA9 \xF1\x80 "),
-            Err(super::Utf8Error {
-                valid_up_to: 4,
-                error_len: Some(2)
-            })
-        );
-
-        assert_eq!(
-            validate_long_baseline_8x(b"A\xC3\xA9 \xF1\x80 "),
             Err(super::Utf8Error {
                 valid_up_to: 4,
                 error_len: Some(2)
@@ -381,7 +353,6 @@ mod tests {
     #[test]
     fn validate_mostly_ascii() {
         assert!(validate_utf8(GERMAN_UTF8_16KB.as_bytes()).is_ok());
-        assert!(validate_long_baseline_8x(GERMAN_UTF8_16KB.as_bytes()).is_ok());
     }
 
     #[cfg(not(feature = "stats"))]
@@ -391,7 +362,6 @@ mod tests {
         vec.push(0xFF);
 
         assert_eq!(validate_utf8(&vec).is_ok(), false);
-        assert_eq!(validate_long_baseline_8x(&vec).is_ok(), false);
     }
 
     #[cfg(not(feature = "stats"))]
@@ -399,9 +369,6 @@ mod tests {
     fn validate_utf() {
         assert!(validate_utf8(b"Lorem ipsum dolor sit amet.").is_ok());
         assert!(validate_utf8("Lörem ipsüm dölör sit ämet.".as_bytes()).is_ok());
-
-        assert!(validate_long_baseline_8x(b"Lorem ipsum dolor sit amet.").is_ok());
-        assert!(validate_long_baseline_8x("Lörem ipsüm dölör sit ämet.".as_bytes()).is_ok());
     }
 
     /*#[cfg(not(feature = "stats"))]
@@ -448,7 +415,6 @@ mod tests {
     fn faust() {
         const FAUST: &str = include_str!("../assets/faust_213kb.txt");
         assert!(validate_utf8(FAUST.as_bytes()).is_ok());
-        assert!(validate_long_baseline_8x(FAUST.as_bytes()).is_ok());
     }
 
     #[cfg(not(feature = "stats"))]
@@ -456,7 +422,6 @@ mod tests {
     fn chinese() {
         const CHINESE: &str = include_str!("../assets/chinese_1mb.txt");
         assert!(validate_utf8(CHINESE.as_bytes()).is_ok());
-        assert!(validate_long_baseline_8x(CHINESE.as_bytes()).is_ok());
     }
 
     #[cfg(feature = "stats")]
