@@ -74,7 +74,7 @@ fn validate_long_baseline<const _N: usize>(buf: &[u8]) -> Result<(), Utf8Error> 
                 if penalty == 0 {
                     while curr < block_end_8x {
                         let block = unsafe { &*(start.add(curr) as *const [usize; 8]) };
-                        if has_non_ascii_byte_8x(block) {
+                        if has_non_ascii_byte_8x(block, &mut masked_words) {
                             masked_words = [
                                 block[0] & NONASCII_MASK,
                                 block[1] & NONASCII_MASK,
@@ -165,8 +165,8 @@ fn validate_long_baseline<const _N: usize>(buf: &[u8]) -> Result<(), Utf8Error> 
     Ok(())
 }
 
-const fn has_non_ascii_byte_8x(block: &[usize; 8]) -> bool {
-    let vector = [
+fn has_non_ascii_byte_8x(block: &[usize; 8], masked_words: &mut [usize; 8]) -> bool {
+    let masked_words = [
         block[0] & NONASCII_MASK,
         block[1] & NONASCII_MASK,
         block[2] & NONASCII_MASK,
@@ -181,7 +181,7 @@ const fn has_non_ascii_byte_8x(block: &[usize; 8]) -> bool {
     let mut res = 0;
 
     while i < 8 {
-        res |= vector[i];
+        res |= masked_words[i];
         i += 1;
     }
 
