@@ -55,9 +55,11 @@ fn validate_long_baseline(buf: &[u8]) -> Result<(), Utf8Error> {
     // calculate the maximum byte at which a block of size N could begin,
     // without taking alignment into account
     let block_end_n = block_end(end, N * WORD_BYTES);
-    let mut masked_words = [0usize; N];
+    let block_end_8 = block_end(end, 8 * WORD_BYTES);
 
-    //let mut penalty: usize = 0;
+    // TODO: skip this cache step
+    let mut masked_words = [0usize; 8];
+    let mut penalty: usize = 0;
 
     while curr < end {
         if buf[curr] < 128 {
@@ -71,58 +73,53 @@ fn validate_long_baseline(buf: &[u8]) -> Result<(), Utf8Error> {
             // check if `curr`'s pointer is word-aligned
             let offset = align_offset.wrapping_sub(curr) % WORD_BYTES;
             if offset == 0 {
-                let mut has_non_ascii = false;
-                /*if penalty == 0 {
-                    while curr < block_end_8x {
-                        let block = unsafe { &*(start.add(curr) as *const [usize; 8]) };
-                        if has_non_ascii_byte_8x(block) {
-                            masked_words = [
-                                block[0] & NONASCII_MASK,
-                                block[1] & NONASCII_MASK,
-                                block[2] & NONASCII_MASK,
-                                block[3] & NONASCII_MASK,
-                                block[4] & NONASCII_MASK,
-                                block[5] & NONASCII_MASK,
-                                block[6] & NONASCII_MASK,
-                                block[7] & NONASCII_MASK,
-                            ];
+                let non_ascii = 'block: loop {
+                    if penalty == 0 {
+                        // TODO: while loop!
+                        let blocks = block_end_8 - curr / (8 * WORD_BYTES);
+                        for _ in 0..blocks {
+                            let block = unsafe { &*(start.add(curr) as *const [usize; 8]) };
+                            if has_non_ascii_byte_8x(&block) {
+                                masked_words = mask_block(block);
+                                penalty += 16;
+                                break 'block 8;
+                            }
 
-                            penalty += 16;
-                            has_non_ascii = 8;
+                            curr += 8 * WORD_BYTES;
+                        }
+                    }
 
-                            break;
+                    // check N-word sized blocks for non-ASCII bytes
+                    // word-alignment has been determined at this point, so only
+                    // the buffer length needs to be taken into consideration
+                    while curr < block_end_n {
+                        // SAFETY: the loop condition guarantees that there is
+                        // sufficient room for N word-blocks in the buffer
+                        let block = unsafe { &*(start.add(curr) as *const [usize; N]) };
+                        masked_words[0] = block[0] & NONASCII_MASK;
+                        masked_words[1] = block[1] & NONASCII_MASK;
+
+                        if has_non_ascii_byte(&masked_words) {
+                            break 'block 2;
                         }
 
-                        curr += 8 * WORD_BYTES;
-                    }
-                }*/
-
-                // check N-word sized blocks for non-ASCII bytes
-                // word-alignment has been determined at this point, so only
-                // the buffer length needs to be taken into consideration
-                while curr < block_end_n {
-                    // SAFETY: the loop condition guarantees that there is
-                    // sufficient room for N word-blocks in the buffer
-                    let block = unsafe { &*(start.add(curr) as *const [usize; N]) };
-                    masked_words[0] = block[0] & NONASCII_MASK;
-                    masked_words[1] = block[1] & NONASCII_MASK;
-
-                    if has_non_ascii_byte(&masked_words) {
-                        has_non_ascii = true;
-                        break;
+                        curr += N * WORD_BYTES;
+                        if penalty >= 2 {
+                            penalty -= 2;
+                        }
                     }
 
-                    curr += N * WORD_BYTES;
-                }
+                    break 0;
+                };
 
                 // if the block loop was stopped due to a non-ascii byte
                 // in some word, do another word-wise search using the same word
                 // buffer used before in order to avoid having to checking all
                 // bytes individually again.
-                if has_non_ascii {
+                if non_ascii > 0 {
                     // calculate the amount of bytes that can be skipped without
                     // having to check them individually
-                    let skip = unsafe { non_ascii_byte_position(&masked_words) };
+                    let skip = unsafe { non_ascii_byte_position(&masked_words, non_ascii) };
                     curr += skip as usize;
                     continue;
                 }
@@ -160,54 +157,51 @@ fn validate_long_baseline(buf: &[u8]) -> Result<(), Utf8Error> {
     Ok(())
 }
 
+#[inline(always)]
 const fn has_non_ascii_byte_8x(block: &[usize; 8]) -> bool {
-    let vector = [
-        block[0] & NONASCII_MASK,
-        block[1] & NONASCII_MASK,
-        block[2] & NONASCII_MASK,
-        block[3] & NONASCII_MASK,
-        block[4] & NONASCII_MASK,
-        block[5] & NONASCII_MASK,
-        block[6] & NONASCII_MASK,
-        block[7] & NONASCII_MASK,
-    ];
-
-    let mut i = 0;
-    let mut res = 0;
-
-    while i < 8 {
-        res |= vector[i];
-        i += 1;
-    }
-
-    res > 0
+    let vector = mask_block(block);
+    has_non_ascii_byte_masked_8x(&vector)
 }
 
 #[inline(always)]
-const fn has_non_ascii_byte(masked_words: &[usize; 2]) -> bool {
+const fn has_non_ascii_byte_masked_8x(masked_words: &[usize; 8]) -> bool {
+    let mut i = 0;
+    while i < 8 {
+        if masked_words[i] > 0 {
+            return true;
+        }
+
+        i += 1;
+    }
+
+    false
+}
+
+#[inline(always)]
+const fn mask_block<const N: usize>(block: &[usize; N]) -> [usize; N] {
+    let mut masked = [0; N];
+    let mut i = 0;
+
+    while i < N {
+        masked[i] = block[i];
+        i += 1;
+    }
+
+    masked
+}
+
+#[inline(always)]
+const fn has_non_ascii_byte(masked_words: &[usize; 8]) -> bool {
     masked_words[0] > 0 || masked_words[1] > 0
 }
 
 #[inline(always)]
-const fn has_non_ascii_byte_nx<const N: usize>(masked_words: &[usize; 8]) -> bool {
-    let mut res = 0;
+const unsafe fn non_ascii_byte_position(masked_words: &[usize; 8], len: usize) -> u32 {
     let mut i = 0;
-    while i < N {
-        res |= masked_words[i];
-        i += 1;
-    }
-
-    res > 0
-}
-
-#[inline(always)]
-#[track_caller]
-const unsafe fn non_ascii_byte_position(mask_block: &[usize; 2]) -> u32 {
-    let mut i = 0;
-    while i < 2 {
+    while i < len {
         // number of trailing zeroes in a word is equivalent to the number of
         // valid ASCII "nibbles"
-        let ctz = mask_block[i].trailing_zeros();
+        let ctz = masked_words[i].trailing_zeros();
         if ctz < usize::BITS {
             let byte = ctz / WORD_BYTES as u32;
             return byte + (i as u32 * WORD_BYTES as u32);
