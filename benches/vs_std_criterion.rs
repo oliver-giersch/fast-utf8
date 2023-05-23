@@ -3,19 +3,9 @@ use std::hint::black_box;
 use criterion::{criterion_group, criterion_main, BenchmarkGroup, Criterion};
 
 #[inline(always)]
-fn fast_baseline_2x(buf: &[u8]) -> bool {
-    fast_utf8::validate_utf8_baseline(buf).is_ok()
+fn fast(buf: &[u8]) -> bool {
+    fast_utf8::validate_utf8(buf).is_ok()
 }
-
-/*#[inline(always)]
-fn fast_baseline_4x(buf: &[u8]) -> bool {
-    fast_utf8::validate_utf8_baseline::<4>(buf).is_ok()
-}
-
-#[inline(always)]
-fn fast_baseline_8x(buf: &[u8]) -> bool {
-    fast_utf8::validate_utf8_baseline::<8>(buf).is_ok()
-}*/
 
 #[inline(always)]
 fn std(buf: &[u8]) -> bool {
@@ -85,7 +75,7 @@ fn validate(f: fn(&[u8]) -> bool, text: &[u8]) {
 
 fn validate_group(group: &mut BenchmarkGroup<'_, criterion::measurement::WallTime>, text: &[u8]) {
     //group.bench_function("fast-dynamic", |b| b.iter(|| validate(fast_dynamic, text)));
-    group.bench_function("fast-2x", |b| b.iter(|| validate(fast_baseline_2x, text)));
+    group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
     //group.bench_function("fast-4x", |b| b.iter(|| validate(fast_baseline_4x, text)));
     //group.bench_function("fast-8x", |b| b.iter(|| validate(fast_baseline_8x, text)));
     group.bench_function("std", |b| b.iter(|| validate(std, text)));

@@ -31,14 +31,9 @@ pub struct Stats {
     non_ascii_count: usize,
 }
 
-#[inline(never)]
-pub fn validate_utf8_baseline(buf: &[u8]) -> Result<(), Utf8Error> {
-    validate_long_baseline(buf)
-}
-
 // relatively close to STD implementation, minor improvements, generic block size
-#[inline(always)]
-fn validate_long_baseline(buf: &[u8]) -> Result<(), Utf8Error> {
+#[inline(never)]
+pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
     // establish byte buffer bounds
     let (mut curr, end) = (0, buf.len());
     let start = buf.as_ptr();
@@ -65,7 +60,7 @@ fn validate_long_baseline(buf: &[u8]) -> Result<(), Utf8Error> {
             let offset = align_offset.wrapping_sub(curr) % WORD_BYTES;
             if offset == 0 {
                 let non_ascii = 'block: {
-                    if penalty == 0 {
+                    if penalty <= 16 {
                         while curr < block_end_8x {
                             let block = unsafe {
                                 let ptr = start.add(curr);
@@ -89,6 +84,7 @@ fn validate_long_baseline(buf: &[u8]) -> Result<(), Utf8Error> {
                         // sufficient room for N word-blocks in the buffer
                         let block = unsafe { &*(start.add(curr) as *const [usize; 2]) };
                         if has_non_ascii_byte(&block) {
+                            penalty += 4;
                             break 'block 2;
                         }
 
@@ -318,7 +314,7 @@ const fn utf8_char_width(byte: u8) -> usize {
 mod tests {
     const GERMAN_UTF8_16KB: &str = include_str!("../assets/german_16kb.txt");
 
-    use super::validate_utf8_baseline as validate_utf8;
+    use super::validate_utf8;
 
     #[cfg(not(feature = "stats"))]
     #[test]
