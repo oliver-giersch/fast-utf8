@@ -9,29 +9,6 @@ pub struct Utf8Error {
     pub error_len: Option<u8>,
 }
 
-// TODO: implement short/long string versions (cache line boundary?)
-// TODO: implement dynamic back-off mechanism (back off from SIMD)
-//  - non-ASCII char in block-wise path: add penalty for further block checks (increase with block-size)
-//  - ASCII char in byte-wise path: decrease penalty
-//  - non-ASCII char in byte-wise: increase penalty
-// byte-wise checks: best for 0-10% ASCII
-// ???: anything in between
-// large blocks: best for 100% ASCII
-
-#[cfg(feature = "stats")]
-#[derive(Default, Debug)]
-pub struct Stats {
-    count_8x: usize,
-    count_4x: usize,
-    count_2x: usize,
-    failed_8x: usize,
-    failed_4x: usize,
-    failed_2x: usize,
-    pessimistic_byte_wise_count: usize,
-    non_ascii_count: usize,
-}
-
-// relatively close to STD implementation, minor improvements, generic block size
 #[inline(never)]
 pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
     // establish byte buffer bounds
@@ -62,6 +39,8 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
                 let non_ascii = 'block: {
                     if penalty <= 16 {
                         while curr < block_end_8x {
+                            // SAFETY: correct pointer alignment and buffer
+                            // length ensured by previous checks
                             let block = unsafe {
                                 let ptr = start.add(curr);
                                 &*(ptr as *const [usize; 8])
@@ -113,9 +92,9 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
                 }
 
                 // ...otherwise, fall back to byte-wise checks
-                curr = ascii_check_bytewise(buf, curr);
+                curr = validate_ascii_bytewise(buf, curr);
             } else {
-                curr = ascii_check_bytewise_unaligned(buf, offset, curr);
+                curr = validate_ascii_bytewise_unaligned(buf, offset, curr);
             }
         } else {
             // non-ASCII case: validate up to 4 bytes, then advance `curr`
@@ -132,7 +111,7 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
 
 #[inline(always)]
 #[cold]
-const fn ascii_check_bytewise(buf: &[u8], mut curr: usize) -> usize {
+const fn validate_ascii_bytewise(buf: &[u8], mut curr: usize) -> usize {
     while curr < buf.len() && buf[curr] < 128 {
         curr += 1;
     }
@@ -142,7 +121,7 @@ const fn ascii_check_bytewise(buf: &[u8], mut curr: usize) -> usize {
 
 #[inline(always)]
 #[cold]
-const fn ascii_check_bytewise_unaligned(buf: &[u8], offset: usize, mut curr: usize) -> usize {
+const fn validate_ascii_bytewise_unaligned(buf: &[u8], offset: usize, mut curr: usize) -> usize {
     let mut i = 0;
     while i < offset {
         // no need to check alignment again for every byte, so skip
@@ -316,7 +295,6 @@ mod tests {
 
     use super::validate_utf8;
 
-    #[cfg(not(feature = "stats"))]
     #[test]
     fn invalid_utf8() {
         assert_eq!(
@@ -336,13 +314,11 @@ mod tests {
         );
     }
 
-    #[cfg(not(feature = "stats"))]
     #[test]
     fn validate_mostly_ascii() {
         assert!(validate_utf8(GERMAN_UTF8_16KB.as_bytes()).is_ok());
     }
 
-    #[cfg(not(feature = "stats"))]
     #[test]
     fn validate_invalid() {
         let mut vec = Vec::from(GERMAN_UTF8_16KB);
@@ -351,90 +327,63 @@ mod tests {
         assert_eq!(validate_utf8(&vec).is_ok(), false);
     }
 
-    #[cfg(not(feature = "stats"))]
     #[test]
     fn validate_utf() {
         assert!(validate_utf8(b"Lorem ipsum dolor sit amet.").is_ok());
         assert!(validate_utf8("Lörem ipsüm dölör sit ämet.".as_bytes()).is_ok());
     }
 
-    /*#[cfg(not(feature = "stats"))]
     #[test]
     fn non_ascii_byte_count() {
-        let block = [0x7F7F7F7F_7F7F7FFF];
-        let res = super::non_ascii_byte_position(&block);
-        assert_eq!(res, (0, true));
-        let block = [0x7F7F7F7F_7F7FFF7F];
-        let res = super::non_ascii_byte_position(&block);
-        assert_eq!(res, (1, true));
-        let block = [0x7F7F7F7F_7FFF7F7F];
-        let res = super::non_ascii_byte_position(&block);
-        assert_eq!(res, (2, true));
-        let block = [0x7F7F7F7F_FF7F7F7F];
-        let res = super::non_ascii_byte_position(&block);
-        assert_eq!(res, (3, true));
-        let block = [0x7F7F7FFF_7F7F7F7F];
-        let res = super::non_ascii_byte_position(&block);
-        assert_eq!(res, (4, true));
-        let block = [0x7F7FFF7F_7F7F7F7F];
-        let res = super::non_ascii_byte_position(&block);
-        assert_eq!(res, (5, true));
-        let block = [0x7FFF7F7F_7F7F7F7F];
-        let res = super::non_ascii_byte_position(&block);
-        assert_eq!(res, (6, true));
-        let block = [0xFF7F7F7F_7F7F7F7F];
-        let res = super::non_ascii_byte_position(&block);
-        assert_eq!(res, (7, true));
-        let block = [0x7F7F7F7F_7F7F7F7F];
-        let res = super::non_ascii_byte_position(&block);
-        assert_eq!(res, (8, false));
+        unsafe {
+            let block = [0x7F7F7F7F_7F7F7FFF];
+            let res = super::non_ascii_byte_position(&block);
+            assert_eq!(res, 0);
+            let block = [0x7F7F7F7F_7F7FFF7F];
+            let res = super::non_ascii_byte_position(&block);
+            assert_eq!(res, 1);
+            let block = [0x7F7F7F7F_7FFF7F7F];
+            let res = super::non_ascii_byte_position(&block);
+            assert_eq!(res, 2);
+            let block = [0x7F7F7F7F_FF7F7F7F];
+            let res = super::non_ascii_byte_position(&block);
+            assert_eq!(res, 3);
+            let block = [0x7F7F7FFF_7F7F7F7F];
+            let res = super::non_ascii_byte_position(&block);
+            assert_eq!(res, 4);
+            let block = [0x7F7FFF7F_7F7F7F7F];
+            let res = super::non_ascii_byte_position(&block);
+            assert_eq!(res, 5);
+            let block = [0x7FFF7F7F_7F7F7F7F];
+            let res = super::non_ascii_byte_position(&block);
+            assert_eq!(res, 6);
+            let block = [0xFF7F7F7F_7F7F7F7F];
+            let res = super::non_ascii_byte_position(&block);
+            assert_eq!(res, 7);
+            let block = [0x7F7F7F7F_7F7F7F7F, 0x7F7F7F7F_7F7F7FFF];
+            let res = super::non_ascii_byte_position(&block);
+            assert_eq!(res, 8);
+            let block = [0x7F7F7F7F_7F7F7F7F, 0x7F7F7F7F_7F7FFF7F];
+            let res = super::non_ascii_byte_position(&block);
+            assert_eq!(res, 9);
+        }
+    }
 
-        let block = [0x7F7F7F7F_7F7F7F7F, 0x7F7F7F7F_7F7F7FFF];
-        let res = super::non_ascii_byte_position(&block);
-        assert_eq!(res, (8, true));
-        let block = [0x7F7F7F7F_7F7F7F7F, 0x7F7F7F7F_7F7FFF7F];
-        let res = super::non_ascii_byte_position(&block);
-        assert_eq!(res, (9, true));
-    }*/
-
-    #[cfg(not(feature = "stats"))]
     #[test]
     fn faust() {
         const FAUST: &str = include_str!("../assets/faust_213kb.txt");
         assert!(validate_utf8(FAUST.as_bytes()).is_ok());
     }
 
-    #[cfg(not(feature = "stats"))]
     #[test]
     fn chinese() {
         const CHINESE: &str = include_str!("../assets/chinese_1mb.txt");
         assert!(validate_utf8(CHINESE.as_bytes()).is_ok());
     }
 
-    #[cfg(not(feature = "stats"))]
     #[test]
     fn latin_3kb() {
         const LATIN_3KB: &str = include_str!("../assets/latin_3kb.txt");
         assert!(validate_utf8(LATIN_3KB.as_bytes()).is_ok());
-    }
-
-    #[cfg(feature = "stats")]
-    #[test]
-    fn stats() {
-        const FAUST: &str = include_str!("../assets/faust_213kb.txt");
-
-        let mut stats = super::Stats::default();
-        assert!(super::validate_utf8(FAUST.as_bytes(), Some(&mut stats)).is_ok(),);
-        dbg!(stats);
-
-        const A_ROOM_WITH_A_VIEW: &str = include_str!("../assets/english_406kb.txt");
-        stats = super::Stats::default();
-        assert!(super::validate_utf8(A_ROOM_WITH_A_VIEW.as_bytes(), Some(&mut stats)).is_ok(),);
-        dbg!(stats);
-
-        const ENGLISH: &str = include_str!("../assets/hamlet.txt");
-        stats = super::Stats::default();
-        assert!(super::validate_utf8(ENGLISH.as_bytes(), Some(&mut stats)).is_ok(),);
-        dbg!(stats);
     }
 }
