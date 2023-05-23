@@ -74,10 +74,7 @@ fn validate(f: fn(&[u8]) -> bool, text: &[u8]) {
 }
 
 fn validate_group(group: &mut BenchmarkGroup<'_, criterion::measurement::WallTime>, text: &[u8]) {
-    //group.bench_function("fast-dynamic", |b| b.iter(|| validate(fast_dynamic, text)));
     group.bench_function("fast", |b| b.iter(|| validate(fast, text)));
-    //group.bench_function("fast-4x", |b| b.iter(|| validate(fast_baseline_4x, text)));
-    //group.bench_function("fast-8x", |b| b.iter(|| validate(fast_baseline_8x, text)));
     group.bench_function("std", |b| b.iter(|| validate(std, text)));
 }
 
