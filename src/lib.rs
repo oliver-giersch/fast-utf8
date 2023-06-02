@@ -9,8 +9,11 @@ pub struct Utf8Error {
     pub error_len: Option<u8>,
 }
 
-struct Statistics {
+#[derive(Debug, Default)]
+pub struct Statistics {
+    success_blocks_8x: usize,
     failed_blocks_8x: usize,
+    success_blocks_2x: usize,
     failed_blocks_2x: usize,
     unaligned_blocks: usize,
     bytewise_checks: usize,
@@ -20,6 +23,14 @@ struct Statistics {
 
 #[inline(never)]
 pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
+    validate_utf8_with_stats(buf, None)
+}
+
+#[inline(always)]
+pub fn validate_utf8_with_stats(
+    buf: &[u8],
+    mut stats: Option<&mut Statistics>,
+) -> Result<(), Utf8Error> {
     // establish byte buffer bounds
     let (mut curr, end) = (0, buf.len());
     let start = buf.as_ptr();
@@ -36,6 +47,10 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
     // label within in the function and *not* be inlined separately each time
     macro_rules! non_ascii {
         () => {
+            if let Some(stats) = stats.as_mut() {
+                stats.non_ascii_checks += 1;
+            }
+
             // non-ASCII case: validate up to 4 bytes, then advance `curr`
             // accordingly
             match validate_non_acii_bytes(buf, curr, end) {
@@ -64,6 +79,10 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
         // bytewise until it is byte aligned
         let offset = align_offset.wrapping_sub(curr) % WORD_BYTES;
         if offset > 0 {
+            if let Some(stats) = stats.as_mut() {
+                stats.unaligned_blocks += 1;
+            }
+
             // the offset at which the `curr` pointer will be aligned again
             let aligned = curr + offset;
             // the first unaligned byte has already be determined the be
@@ -95,12 +114,20 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
                 while i < blocks {
                     let block = unsafe { &*(start.add(curr) as *const [usize; 8]) };
                     if has_non_ascii_byte(block) {
-                        penalty += 16;
+                        if let Some(stats) = stats.as_mut() {
+                            stats.failed_blocks_8x += 1;
+                        }
+
+                        penalty += 32;
                         break 'block 8;
                     }
 
                     curr += 8 * WORD_BYTES;
                     i += 1;
+
+                    if let Some(stats) = stats.as_mut() {
+                        stats.success_blocks_8x += 1;
+                    }
                 }
             }
 
@@ -112,6 +139,10 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
                 // sufficient room for N word-blocks in the buffer
                 let block = unsafe { &*(start.add(curr) as *const [usize; 2]) };
                 if has_non_ascii_byte(&block) {
+                    if let Some(stats) = stats.as_mut() {
+                        stats.failed_blocks_2x += 1;
+                    }
+
                     penalty += 4;
                     break 'block 2;
                 }
@@ -120,7 +151,15 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
                 if penalty >= 2 {
                     penalty -= 2;
                 } else if curr < block_end_8x {
+                    if let Some(stats) = stats.as_mut() {
+                        stats.optimistic_2x_to_8x += 1;
+                    }
+
                     continue 'block;
+                }
+
+                if let Some(stats) = stats.as_mut() {
+                    stats.success_blocks_2x += 1;
                 }
             }
 
@@ -146,6 +185,10 @@ pub fn validate_utf8(buf: &[u8]) -> Result<(), Utf8Error> {
 
         // ...otherwise, fall back to byte-wise checks
         curr = validate_ascii_bytewise(buf, curr);
+
+        if let Some(stats) = stats.as_mut() {
+            stats.bytewise_checks += 1;
+        }
     }
 
     Ok(())
