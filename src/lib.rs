@@ -11,14 +11,44 @@ pub struct Utf8Error {
 
 #[derive(Debug, Default)]
 pub struct Statistics {
-    success_blocks_8x: usize,
-    failed_blocks_8x: usize,
-    success_blocks_2x: usize,
-    failed_blocks_2x: usize,
-    unaligned_blocks: usize,
-    bytewise_checks: usize,
-    non_ascii_checks: usize,
-    optimistic_2x_to_8x: usize,
+    pub success_blocks_8x: usize,
+    pub failed_blocks_8x: usize,
+    pub success_blocks_2x: usize,
+    pub failed_blocks_2x: usize,
+    pub unaligned_blocks: usize,
+    pub bytewise_checks: usize,
+    pub non_ascii_checks: usize,
+    pub optimistic_2x_to_8x: usize,
+}
+
+impl Statistics {
+    pub fn success_ratio_8x(&self) -> f64 {
+        let total = self.success_blocks_8x + self.failed_blocks_8x;
+        if total == 0 {
+            return 0.0;
+        }
+
+        self.success_blocks_8x as f64 / total as f64
+    }
+
+    pub fn success_ratio_2x(&self) -> f64 {
+        let total = self.success_blocks_2x + self.failed_blocks_2x;
+        if total == 0 {
+            return 0.0;
+        }
+
+        self.success_blocks_2x as f64 / total as f64
+    }
+
+    pub fn ratio_8x_to_2x(&self) -> f64 {
+        let total_8x = self.success_blocks_8x + self.failed_blocks_8x;
+        let total_2x = self.success_blocks_2x + self.failed_blocks_2x;
+        if total_2x == 0 {
+            0.0
+        } else {
+            total_8x as f64 / total_2x as f64
+        }
+    }
 }
 
 #[inline(never)]
@@ -107,7 +137,7 @@ pub fn validate_utf8_with_stats(
         }
 
         let non_ascii = 'block: loop {
-            if penalty <= 16 && curr < block_end_8x {
+            if penalty <= 8 && curr < block_end_8x {
                 let blocks = (block_end_8x - curr) / (8 * WORD_BYTES);
                 let mut i = 0;
 
@@ -118,7 +148,7 @@ pub fn validate_utf8_with_stats(
                             stats.failed_blocks_8x += 1;
                         }
 
-                        penalty += 32;
+                        penalty += 16;
                         break 'block 8;
                     }
 
@@ -131,7 +161,7 @@ pub fn validate_utf8_with_stats(
                 }
             }
 
-            // check N-word sized blocks for non-ASCII bytes
+            // check 2-word sized blocks for non-ASCII bytes
             // word-alignment has been determined at this point, so only
             // the buffer length needs to be taken into consideration
             while curr < block_end_2x {
