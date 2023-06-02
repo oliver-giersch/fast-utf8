@@ -72,9 +72,10 @@ pub fn validate_utf8_with_stats(
     let block_end_2x = block_end(end, 2 * WORD_BYTES);
     let block_end_8x = block_end(end, 8 * WORD_BYTES);
 
-    // this serves as a replacement for a goto statement, any invocation of this
-    // macro should be compiled to a simple jump instruction to the appropriate
-    // label within in the function and *not* be inlined separately each time
+    // this serves as a (hacky) replacement for a goto statement, any invocation
+    // of this macro should be compiled to a simple jump instruction to the
+    // appropriate label within in the function and *not* be inlined separately
+    // at each call-site
     macro_rules! non_ascii {
         () => {
             if let Some(stats) = stats.as_mut() {
@@ -100,6 +101,8 @@ pub fn validate_utf8_with_stats(
 
         // `align_offset` can basically only be `usize::MAX` for pointers to
         // ZSTs, so the first check/branch is almost certainly optimized out
+        // NOTE: outside of the `std` library, the compiler seems to be unable
+        // to determine this must always be false
         if align_offset == usize::MAX {
             curr += 1;
             continue;
@@ -137,7 +140,7 @@ pub fn validate_utf8_with_stats(
         }
 
         let non_ascii = 'block: loop {
-            if penalty <= 8 && curr < block_end_8x {
+            if penalty == 0 && curr < block_end_8x {
                 let blocks = (block_end_8x - curr) / (8 * WORD_BYTES);
                 let mut i = 0;
 
@@ -232,27 +235,6 @@ const fn validate_ascii_bytewise(buf: &[u8], mut curr: usize) -> usize {
     }
 
     curr
-}
-
-#[inline(always)]
-#[cold]
-const fn validate_ascii_bytewise_unaligned(
-    buf: &[u8],
-    offset: usize,
-    mut curr: usize,
-) -> (usize, bool) {
-    let end = curr + offset;
-    while curr < end {
-        // no need to check alignment again for every byte, so skip
-        // up to `offset` valid ASCII bytes if possible
-        curr += 1;
-
-        if !(curr < buf.len() && buf[curr] < 128) {
-            return (curr, true);
-        }
-    }
-
-    (curr, false)
 }
 
 #[inline(always)]
@@ -404,6 +386,136 @@ const fn utf8_char_width(byte: u8) -> usize {
     ];
 
     UTF8_CHAR_WIDTH[byte as usize] as usize
+}
+
+#[inline(never)]
+pub fn validate_utf8_std(v: &[u8]) -> Result<(), Utf8Error> {
+    let mut index = 0;
+    let len = v.len();
+
+    let usize_bytes = mem::size_of::<usize>();
+    let ascii_block_size = 2 * usize_bytes;
+    let blocks_end = if len >= ascii_block_size {
+        len - ascii_block_size + 1
+    } else {
+        0
+    };
+    let align = v.as_ptr().align_offset(usize_bytes);
+
+    while index < len {
+        let old_offset = index;
+        macro_rules! err {
+            ($error_len: expr) => {
+                return Err(Utf8Error {
+                    valid_up_to: old_offset,
+                    error_len: $error_len,
+                })
+            };
+        }
+
+        macro_rules! next {
+            () => {{
+                index += 1;
+                // we needed data, but there was none: error!
+                if index >= len {
+                    err!(None)
+                }
+                v[index]
+            }};
+        }
+
+        let first = v[index];
+        if first >= 128 {
+            let w = utf8_char_width(first);
+            // 2-byte encoding is for codepoints  \u{0080} to  \u{07ff}
+            //        first  C2 80        last DF BF
+            // 3-byte encoding is for codepoints  \u{0800} to  \u{ffff}
+            //        first  E0 A0 80     last EF BF BF
+            //   excluding surrogates codepoints  \u{d800} to  \u{dfff}
+            //               ED A0 80 to       ED BF BF
+            // 4-byte encoding is for codepoints \u{1000}0 to \u{10ff}ff
+            //        first  F0 90 80 80  last F4 8F BF BF
+            //
+            // Use the UTF-8 syntax from the RFC
+            //
+            // https://tools.ietf.org/html/rfc3629
+            // UTF8-1      = %x00-7F
+            // UTF8-2      = %xC2-DF UTF8-tail
+            // UTF8-3      = %xE0 %xA0-BF UTF8-tail / %xE1-EC 2( UTF8-tail ) /
+            //               %xED %x80-9F UTF8-tail / %xEE-EF 2( UTF8-tail )
+            // UTF8-4      = %xF0 %x90-BF 2( UTF8-tail ) / %xF1-F3 3( UTF8-tail ) /
+            //               %xF4 %x80-8F 2( UTF8-tail )
+            match w {
+                2 => {
+                    if next!() as i8 >= -64 {
+                        err!(Some(1))
+                    }
+                }
+                3 => {
+                    match (first, next!()) {
+                        (0xE0, 0xA0..=0xBF)
+                        | (0xE1..=0xEC, 0x80..=0xBF)
+                        | (0xED, 0x80..=0x9F)
+                        | (0xEE..=0xEF, 0x80..=0xBF) => {}
+                        _ => err!(Some(1)),
+                    }
+                    if next!() as i8 >= -64 {
+                        err!(Some(2))
+                    }
+                }
+                4 => {
+                    match (first, next!()) {
+                        (0xF0, 0x90..=0xBF) | (0xF1..=0xF3, 0x80..=0xBF) | (0xF4, 0x80..=0x8F) => {}
+                        _ => err!(Some(1)),
+                    }
+                    if next!() as i8 >= -64 {
+                        err!(Some(2))
+                    }
+                    if next!() as i8 >= -64 {
+                        err!(Some(3))
+                    }
+                }
+                _ => err!(Some(1)),
+            }
+            index += 1;
+        } else {
+            // Ascii case, try to skip forward quickly.
+            // When the pointer is aligned, read 2 words of data per iteration
+            // until we find a word containing a non-ascii byte.
+            if align != usize::MAX && align.wrapping_sub(index) % usize_bytes == 0 {
+                let ptr = v.as_ptr();
+                while index < blocks_end {
+                    // SAFETY: since `align - index` and `ascii_block_size` are
+                    // multiples of `usize_bytes`, `block = ptr.add(index)` is
+                    // always aligned with a `usize` so it's safe to dereference
+                    // both `block` and `block.add(1)`.
+                    unsafe {
+                        let block = ptr.add(index) as *const usize;
+                        // break if there is a nonascii byte
+                        let zu = contains_nonascii(*block);
+                        let zv = contains_nonascii(*block.add(1));
+                        if zu || zv {
+                            break;
+                        }
+                    }
+                    index += ascii_block_size;
+                }
+                // step from the point where the wordwise loop stopped
+                while index < len && v[index] < 128 {
+                    index += 1;
+                }
+            } else {
+                index += 1;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[inline]
+const fn contains_nonascii(x: usize) -> bool {
+    (x & NONASCII_MASK) != 0
 }
 
 #[cfg(test)]
