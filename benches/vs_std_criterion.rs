@@ -9,7 +9,7 @@ fn fast(buf: &[u8]) -> bool {
 
 #[inline(always)]
 fn std(buf: &[u8]) -> bool {
-    std::str::from_utf8(buf).is_ok()
+    fast_utf8::validate_utf8_std(buf).is_ok()
 }
 
 fn bench_group(c: &mut Criterion, language: &'static str, text: &[u8]) {
