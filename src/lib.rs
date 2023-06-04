@@ -93,7 +93,7 @@ pub fn validate_utf8_with_stats(
 
     let mut penalty: usize = 0;
 
-    while curr < end {
+    'outer: while curr < end {
         if buf[curr] >= 128 {
             non_ascii!();
             continue;
@@ -115,6 +115,25 @@ pub fn validate_utf8_with_stats(
             if let Some(stats) = stats.as_mut() {
                 stats.unaligned_blocks += 1;
             }
+
+            /*let aligned = curr + offset;
+            curr += 1;
+
+            while curr < aligned {
+                /*if curr == buf.len() || buf[curr] >= 128 {
+                    continue 'outer;
+                }*/
+                if curr == buf.len() {
+                    continue 'outer;
+                }
+
+                if buf[curr] >= 128 {
+                    non_ascii!();
+                    continue;
+                }
+
+                curr += 1;
+            }*/
 
             let (next, has_non_ascii) = validate_ascii_bytewise_unaligned(buf, offset, curr);
             curr = next;
@@ -271,20 +290,20 @@ const fn validate_ascii_bytewise_unaligned(
     offset: usize,
     mut curr: usize,
 ) -> (usize, bool) {
-    let end = curr + offset;
+    let aligned = curr + offset;
     curr += 1;
 
-    while curr < end {
+    while curr < aligned {
         if curr == buf.len() {
             return (curr, true);
         }
 
-        if buf[curr] < 128 {
-            curr += 1;
-            continue;
+        if buf[curr] >= 128 {
+            return (curr, true);
         }
 
-        return (curr, true);
+        curr += 1;
+        //return (curr, true);
     }
 
     (curr, false)
