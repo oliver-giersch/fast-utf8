@@ -34,7 +34,7 @@ fn main() {
 /*
  * Linux-ELF, x86-64, function sizes
  * fast_utf8::validate_utf8_std:    474B
- * fast_utf8::validate_utf8:        1.4KiB (~3x larger)
+ * fast_utf8::validate_utf8:        1.1KiB (~3x larger)
  */
 
 fn function_sizes() {

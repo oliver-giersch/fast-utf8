@@ -93,7 +93,7 @@ pub fn validate_utf8_with_stats(
 
     let mut penalty: usize = 0;
 
-    'outer: while curr < end {
+    while curr < end {
         if buf[curr] >= 128 {
             non_ascii!();
             continue;
@@ -116,25 +116,6 @@ pub fn validate_utf8_with_stats(
                 stats.unaligned_blocks += 1;
             }
 
-            /*let aligned = curr + offset;
-            curr += 1;
-
-            while curr < aligned {
-                /*if curr == buf.len() || buf[curr] >= 128 {
-                    continue 'outer;
-                }*/
-                if curr == buf.len() {
-                    continue 'outer;
-                }
-
-                if buf[curr] >= 128 {
-                    non_ascii!();
-                    continue;
-                }
-
-                curr += 1;
-            }*/
-
             let (next, has_non_ascii) = validate_ascii_bytewise_unaligned(buf, offset, curr);
             curr = next;
             if has_non_ascii {
@@ -142,55 +123,10 @@ pub fn validate_utf8_with_stats(
             }
         }
 
-        /*
-        // check N-word sized blocks for non-ASCII bytes
-        // the offset at which the `curr` pointer will be aligned again
-        let aligned = curr + offset;
-        // the first unaligned byte has already be determined the be
-        // valid ASCII, so it is not checked again
-        curr += 1;
-
-        // no need to check alignment again for every byte, so skip
-        // up to `offset` valid ASCII bytes if possible
-        while curr < aligned {
-            // the buffer may end before an aligned byte is reached
-            if curr == buf.len() {
-                return Ok(());
-            }
-
-            if buf[curr] < 128 {
-                curr += 1;
-                continue;
-            }
-
-            non_ascii!();
-        }*/
-
-        // 8-block loop
-        /*let non_ascii = 'block: loop {
-            if penalty <= 16 && curr < block_end_8x {
-                let blocks = (block_end_8x - curr) / (8 * WORD_BYTES);
-                let mut i = 0;
-
-                while i < blocks {
-                    let block = unsafe { &*(start.add(curr) as *const [usize; 8]) };
-                    if has_non_ascii_byte(block) {
-                        penalty += 16;
-                        break 'block 8;
-                    }
-
-                    curr += 8 * WORD_BYTES;
-                    i += 1;
-                }
-            }
-        };*/
-
+        // check 8 or 2 word sized blocks for non-ASCII bytes
         let non_ascii = 'block: loop {
-            if penalty == 0 && curr < block_end_8x {
-                let blocks = (block_end_8x - curr) / (8 * WORD_BYTES);
-                let mut i = 0;
-
-                while i < blocks {
+            if penalty == 0 {
+                while curr < block_end_8x {
                     let block = unsafe { &*(start.add(curr) as *const [usize; 8]) };
                     if has_non_ascii_byte(block) {
                         if let Some(stats) = stats.as_mut() {
@@ -202,7 +138,6 @@ pub fn validate_utf8_with_stats(
                     }
 
                     curr += 8 * WORD_BYTES;
-                    i += 1;
 
                     if let Some(stats) = stats.as_mut() {
                         stats.success_blocks_8x += 1;
@@ -230,6 +165,8 @@ pub fn validate_utf8_with_stats(
                 if penalty >= 2 {
                     penalty -= 2;
                 } else if curr < block_end_8x {
+                    // opportunistically switch back to larger blocks, when the
+                    // reduction in accumulated backoff penalty permits it
                     if let Some(stats) = stats.as_mut() {
                         stats.optimistic_2x_to_8x += 1;
                     }
@@ -267,7 +204,8 @@ pub fn validate_utf8_with_stats(
         }
 
         // ...otherwise, fall back to byte-wise checks
-        curr = validate_ascii_bytewise(buf, curr);
+        //curr = validate_ascii_bytewise(buf, curr);
+        curr += 1;
     }
 
     Ok(())
@@ -291,9 +229,19 @@ const fn validate_ascii_bytewise_unaligned(
     mut curr: usize,
 ) -> (usize, bool) {
     let aligned = curr + offset;
-    curr += 1;
+    loop {
+        curr += 1;
 
-    while curr < aligned {
+        if curr == buf.len() || buf[curr] >= 128 {
+            return (curr, true);
+        }
+
+        if curr == aligned {
+            return (curr, false);
+        }
+    }
+
+    /*while curr < aligned {
         if curr == buf.len() {
             return (curr, true);
         }
@@ -303,14 +251,14 @@ const fn validate_ascii_bytewise_unaligned(
         }
 
         curr += 1;
-        //return (curr, true);
-    }
+    }*/
 
-    (curr, false)
+    //(curr, false)
 }
 
 #[inline(always)]
 const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
+    // mask each word in the block
     let vector = mask_block(block);
 
     let mut i = 0;
@@ -323,6 +271,8 @@ const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
     res > 0
 }
 
+/// Masks every byte of every word in `block`, so that only the MSB of each byte
+/// remains, indicating a non-ASCII byte.
 #[inline(always)]
 const fn mask_block<const N: usize>(block: &[usize; N]) -> [usize; N] {
     let mut masked = [0usize; N];
@@ -336,13 +286,26 @@ const fn mask_block<const N: usize>(block: &[usize; N]) -> [usize; N] {
     masked
 }
 
+/// Determines the precise position of the first non-ASCII byte in the given
+/// `block`.
+///
+/// # Safety
+///
+/// The caller has to guarantee, that `block` does in fact contain a non-ASCII
+/// byte.
+///
+/// # Note
+///
+/// It would be valid to just return 0 or panic, but this has non-trivial impact
+/// on generated code size.
 #[inline(always)]
 #[cold]
 const unsafe fn non_ascii_byte_position(block: &[usize]) -> u32 {
     let mut i = 0;
     while i < block.len() {
-        // number of trailing zeroes in a word is equivalent to the number of
-        // valid ASCII "nibbles"
+        // number of trailing zeroes in a word divided by the size of a word is
+        // equivalent to the number of valid ASCII bytes, since the first one
+        // bit will be MSB of the first byte within the word that is non-ASCII.
         let ctz = (block[i] & NONASCII_MASK).trailing_zeros();
         if ctz < usize::BITS {
             let byte = ctz / WORD_BYTES as u32;
@@ -350,6 +313,10 @@ const unsafe fn non_ascii_byte_position(block: &[usize]) -> u32 {
         }
 
         i += 1;
+    }
+
+    if cfg!(debug_assertions) {
+        panic!("no non-ASCII byte present in block");
     }
 
     // SAFETY: presence of a non-ASCII byte is required as function invariant
@@ -621,7 +588,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_invalid() {
+    fn invalid_ascii() {
         let mut vec = Vec::from(GERMAN_UTF8_16KB);
         vec.push(0xFF);
 

@@ -1,6 +1,6 @@
 use std::hint::black_box;
 
-use criterion::{criterion_group, criterion_main, BenchmarkGroup, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkGroup, Criterion, SamplingMode};
 
 #[inline(always)]
 fn fast(buf: &[u8]) -> bool {
@@ -13,6 +13,15 @@ fn std(buf: &[u8]) -> bool {
 }
 
 fn bench_group(c: &mut Criterion, language: &'static str, text: &[u8]) {
+    bench_group_sampling(c, language, text, None);
+}
+
+fn bench_group_sampling(
+    c: &mut Criterion,
+    language: &'static str,
+    text: &[u8],
+    mode: Option<SamplingMode>,
+) {
     let group_name = format!(
         "{language}/{}/{}pct-ascii",
         text_size(text),
@@ -20,6 +29,10 @@ fn bench_group(c: &mut Criterion, language: &'static str, text: &[u8]) {
     );
 
     let mut group = c.benchmark_group(group_name);
+    if let Some(mode) = mode {
+        group.sampling_mode(mode);
+    }
+
     validate_group(&mut group, text);
     group.finish();
 }
@@ -153,12 +166,22 @@ fn spanish_414kb(c: &mut Criterion) {
 
 fn hungarian_427kb(c: &mut Criterion) {
     const HUNGARIAN: &str = include_str!("../assets/hungarian_427kb.txt");
-    bench_group(c, "hungarian", HUNGARIAN.as_bytes());
+    bench_group_sampling(
+        c,
+        "hungarian",
+        HUNGARIAN.as_bytes(),
+        Some(SamplingMode::Flat),
+    );
 }
 
 fn hungarian_889kb(c: &mut Criterion) {
     const HUNGARIAN: &str = include_str!("../assets/hungarian_889kb.txt");
-    bench_group(c, "hungarian", HUNGARIAN.as_bytes());
+    bench_group_sampling(
+        c,
+        "hungarian",
+        HUNGARIAN.as_bytes(),
+        Some(SamplingMode::Flat),
+    );
 }
 
 fn english_971kb(c: &mut Criterion) {
@@ -183,7 +206,7 @@ fn spanish_1_1mb(c: &mut Criterion) {
 
 fn greek_1_5mb(c: &mut Criterion) {
     const GREEK: &str = include_str!("../assets/greek_1_5mb.txt");
-    bench_group(c, "greek", GREEK.as_bytes());
+    bench_group_sampling(c, "greek", GREEK.as_bytes(), Some(SamplingMode::Flat));
 }
 
 criterion_group!(
