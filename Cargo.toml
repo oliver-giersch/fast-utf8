@@ -7,7 +7,7 @@ edition = "2021"
 stats = []
 
 [[bench]]
-name = "vs_std_criterion"
+name = "vs_std"
 harness = false
 
 [dev-dependencies]

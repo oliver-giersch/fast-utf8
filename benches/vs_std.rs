@@ -164,6 +164,16 @@ fn spanish_414kb(c: &mut Criterion) {
     bench_group(c, "spanish", SPANISH.as_bytes());
 }
 
+fn bulgarian_461kb(c: &mut Criterion) {
+    const BULGARIAN: &str = include_str!("../assets/bulgarian_461kb.txt");
+    bench_group_sampling(
+        c,
+        "bulgarian",
+        BULGARIAN.as_bytes(),
+        Some(SamplingMode::Flat),
+    );
+}
+
 fn hungarian_427kb(c: &mut Criterion) {
     const HUNGARIAN: &str = include_str!("../assets/hungarian_427kb.txt");
     bench_group_sampling(
@@ -196,12 +206,12 @@ fn german_978kb(c: &mut Criterion) {
 
 fn chinese_1mb(c: &mut Criterion) {
     const CHINESE: &str = include_str!("../assets/chinese_1mb.txt");
-    bench_group(c, "chinese", CHINESE.as_bytes());
+    bench_group_sampling(c, "chinese", CHINESE.as_bytes(), Some(SamplingMode::Flat));
 }
 
 fn spanish_1_1mb(c: &mut Criterion) {
     const SPANISH: &str = include_str!("../assets/spanish_1_1mb.txt");
-    bench_group(c, "spanish", SPANISH.as_bytes());
+    bench_group_sampling(c, "spanish", SPANISH.as_bytes(), Some(SamplingMode::Flat));
 }
 
 fn greek_1_5mb(c: &mut Criterion) {
@@ -225,6 +235,7 @@ criterion_group!(
     english_406kb,
     spanish_414kb,
     hungarian_427kb,
+    bulgarian_461kb,
     hungarian_889kb,
     english_971kb,
     german_978kb,
