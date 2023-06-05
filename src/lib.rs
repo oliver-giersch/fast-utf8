@@ -71,6 +71,11 @@ pub fn validate_utf8_with_stats(
     let block_end_2x = block_end(end, 2 * WORD_BYTES);
     let block_end_8x = block_end(end, 8 * WORD_BYTES);
 
+    // this penalty counter realizes a simple and low-overhead backoff/feedback
+    // mechanism; since "failed" block-wise check cause additional overhead
+    // if they encounter non-ASCII bytes, frequent occurrences lead to the
+    // validation algorithm not to attempt further block-wise checks with larger
+    // block sizes until the penalty has been sufficiently reduced again.
     let mut penalty: usize = 0;
 
     'outer: while curr < end {
@@ -98,6 +103,8 @@ pub fn validate_utf8_with_stats(
                     stats.unaligned_blocks += 1;
                 }
 
+                // loop until `curr` reaches an aligned byte without checking
+                // the alignment condition each time
                 let aligned = curr + offset;
                 loop {
                     curr += 1;
@@ -220,6 +227,12 @@ pub fn validate_utf8_with_stats(
     Ok(())
 }
 
+/// Returns `true` if any byte in `block` contains a non-ASCII byte.
+///
+/// # Note
+///
+/// This function is written to allow for relatively reliable
+/// auto-vectorization, not code size.
 #[inline(always)]
 const fn has_non_ascii_byte<const N: usize>(block: &[usize; N]) -> bool {
     // mask each word in the block
