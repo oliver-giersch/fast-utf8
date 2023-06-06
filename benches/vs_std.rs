@@ -114,6 +114,10 @@ fn german_16kb(c: &mut Criterion) {
     bench_group(c, "german", GERMAN.as_bytes());
 }
 
+fn arabic_21kb(c: &mut Criterion) {
+    const ARABIC: &str = include_str!("../assets/arabic_21kb.txt");
+    bench_group(c, "arabic", ARABIC.as_bytes());
+}
 fn hungarian_52kb(c: &mut Criterion) {
     const HUNGARIAN: &str = include_str!("../assets/hungarian_52kb.txt");
     bench_group(c, "hungarian", HUNGARIAN.as_bytes());
@@ -122,6 +126,11 @@ fn hungarian_52kb(c: &mut Criterion) {
 fn greek_57kb(c: &mut Criterion) {
     const GREEK: &str = include_str!("../assets/greek_57kb.txt");
     bench_group(c, "greek", GREEK.as_bytes());
+}
+
+fn english_80kb(c: &mut Criterion) {
+    const ENGLISH: &str = include_str!("../assets/english_80kb.txt");
+    bench_group(c, "english", ENGLISH.as_bytes());
 }
 
 fn german_100kb(c: &mut Criterion) {
@@ -142,6 +151,11 @@ fn greek_152kb(c: &mut Criterion) {
 fn english_191kb(c: &mut Criterion) {
     const HAMLET: &str = include_str!("../assets/hamlet.txt");
     bench_group(c, "english", HAMLET.as_bytes());
+}
+
+fn japanese_203kb(c: &mut Criterion) {
+    const JAPANESE: &str = include_str!("../assets/japanese_203kb.txt");
+    bench_group(c, "japanese", JAPANESE.as_bytes());
 }
 
 fn faust_213kb(c: &mut Criterion) {
@@ -172,6 +186,11 @@ fn bulgarian_461kb(c: &mut Criterion) {
         BULGARIAN.as_bytes(),
         Some(SamplingMode::Flat),
     );
+}
+
+fn english_568kb(c: &mut Criterion) {
+    const ENGLISH: &str = include_str!("../assets/english_568kb.txt");
+    bench_group(c, "english", ENGLISH.as_bytes());
 }
 
 fn hungarian_427kb(c: &mut Criterion) {
@@ -226,16 +245,20 @@ criterion_group!(
     latin_27b,
     mixed_14kb,
     german_16kb,
+    arabic_21kb,
     hungarian_52kb,
     greek_57kb,
+    english_80kb,
     german_100kb,
     hungarian_104kb,
     greek_152kb,
     english_191kb,
+    japanese_203kb,
     english_406kb,
     spanish_414kb,
     hungarian_427kb,
     bulgarian_461kb,
+    english_568kb,
     hungarian_889kb,
     english_971kb,
     german_978kb,

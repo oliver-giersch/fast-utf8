@@ -148,7 +148,7 @@ pub fn validate_utf8_with_stats(
                 // check 2-word sized blocks for non-ASCII bytes
                 // word-alignment has been determined at this point, so only
                 // the buffer length needs to be taken into consideration
-                while curr < block_end_2x {
+                /*while curr < block_end_2x {
                     // SAFETY: the loop condition guarantees that there is
                     // sufficient room for N word-blocks in the buffer
                     let block = unsafe { &*(start.add(curr) as *const [usize; 2]) };
@@ -177,7 +177,7 @@ pub fn validate_utf8_with_stats(
                     if let Some(stats) = stats.as_mut() {
                         stats.success_blocks_2x += 1;
                     }
-                }
+                }*/
 
                 break 'block 0;
             };
