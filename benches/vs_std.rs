@@ -38,27 +38,31 @@ fn bench_group_sampling(
 }
 
 fn text_size(bytes: &[u8]) -> String {
-    let mut size = bytes.len();
+    let mut precise = bytes.len() as f64;
     let mut i = 0;
+
     loop {
-        let next = size / 1000;
-        if next == 0 {
-            return format!(
-                "{}{}",
-                size,
-                match i {
-                    0 => "b",
-                    1 => "kb",
-                    2 => "mb",
-                    3 => "gb",
-                    4 => "tb",
-                    _ => unreachable!(),
-                }
-            );
+        let next = precise / 1e3;
+        if next < 1.0 {
+            break;
         }
 
-        size = next;
+        precise = next;
         i += 1;
+    }
+
+    let unit = match i {
+        0 => "b",
+        1 => "kb",
+        2 => "mb",
+        3 => "gb",
+        _ => unreachable!(),
+    };
+
+    if precise < 10.0 {
+        format!("{precise:.2}{unit}")
+    } else {
+        format!("{:.0}{unit}", precise.floor())
     }
 }
 
