@@ -242,8 +242,31 @@ fn greek_1_5mb(c: &mut Criterion) {
     bench_group_sampling(c, "greek", GREEK.as_bytes(), Some(SamplingMode::Flat));
 }
 
+fn short_strings(c: &mut Criterion) {
+    const STRINGS: &str = include_str!("../assets/short_strings.txt");
+
+    let mut group = c.benchmark_group("short strings (up to 64B)");
+    group.bench_function("fast", |b| {
+        b.iter(|| {
+            for line in STRINGS.lines() {
+                validate(fast, line.as_bytes());
+            }
+        })
+    });
+
+    group.bench_function("std", |b| {
+        b.iter(|| {
+            for line in STRINGS.lines() {
+                validate(std, line.as_bytes());
+            }
+        })
+    });
+}
+
+criterion_group!(assorted, short_strings,);
+
 criterion_group!(
-    benches,
+    by_language,
     none_0b,
     latin_3kb,
     latin_27b,
@@ -272,4 +295,5 @@ criterion_group!(
     spanish_1_1mb,
     greek_1_5mb,
 );
-criterion_main!(benches);
+
+criterion_main!(assorted, by_language);
