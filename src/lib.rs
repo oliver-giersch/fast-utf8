@@ -63,13 +63,14 @@ pub fn validate_utf8_with_stats(
 ) -> Result<(), Utf8Error> {
     let (mut curr, end) = (0, buf.len());
     let start = buf.as_ptr();
-    // calculate the byte offset until the first word aligned block
-    let align_offset = start.align_offset(WORD_BYTES);
 
     // calculate the maximum byte at which a block of size N could begin,
     // without taking alignment into account
     let block_end_2x = block_end(end, 2 * WORD_BYTES);
     let block_end_8x = block_end(end, 8 * WORD_BYTES);
+
+    // calculate the byte offset until the first word aligned block
+    let align_offset = start.align_offset(WORD_BYTES);
 
     'outer: while curr < end {
         // this block allows us to inexpensively jump to the non-ASCII branch
@@ -118,10 +119,9 @@ pub fn validate_utf8_with_stats(
 
             // check 8 or 2 word sized blocks for non-ASCII bytes
             let non_ascii = 'block: {
-                //if penalty == 0 {
                 while curr < block_end_8x {
-                    // cast to 8-word array reference
-                    // SAFETY: ...
+                    // SAFETY: the loop condition guarantees that there is
+                    // sufficient room for N word-blocks in the buffer
                     let block = unsafe { &*(start.add(curr) as *const [usize; 8]) };
                     if has_non_ascii_byte(block) {
                         if let Some(stats) = stats.as_mut() {
@@ -175,9 +175,9 @@ pub fn validate_utf8_with_stats(
                 curr += unsafe {
                     let ptr = start.add(curr);
                     let block = slice::from_raw_parts(ptr as *const usize, non_ascii);
-                    // SAFETY: since a previous [8|2]-word check "failed", there
-                    // *must* be at least one non-ASCII byte somewhere in the
-                    // block
+                    // SAFETY: since a previous [8|2]-word check "failed",
+                    // there *must* be at least one non-ASCII byte somewhere in
+                    // the block
                     non_ascii_byte_position(&block) as usize
                 };
 
@@ -192,6 +192,7 @@ pub fn validate_utf8_with_stats(
             loop {
                 curr += 1;
 
+                // curr may already have been at end after exhaustive block loop
                 if curr >= end {
                     return Ok(());
                 }
@@ -200,17 +201,14 @@ pub fn validate_utf8_with_stats(
                     break 'ascii;
                 }
             }
-
-            //curr += 1;
-            //continue 'outer;
         }
 
+        // non-ASCII case: validate up to 4 bytes, then advance `curr`
+        // accordingly, then resume main loop
         if let Some(stats) = stats.as_mut() {
             stats.non_ascii_checks += 1;
         }
 
-        // non-ASCII case: validate up to 4 bytes, then advance `curr`
-        // accordingly
         match validate_non_acii_bytes(buf, curr, end) {
             Ok(next) => curr = next,
             Err(e) => return Err(e),
