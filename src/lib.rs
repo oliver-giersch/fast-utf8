@@ -71,13 +71,6 @@ pub fn validate_utf8_with_stats(
     let block_end_2x = block_end(end, 2 * WORD_BYTES);
     let block_end_8x = block_end(end, 8 * WORD_BYTES);
 
-    // this penalty counter realizes a simple and low-overhead backoff/feedback
-    // mechanism; since "failed" block-wise check cause additional overhead
-    // if they encounter non-ASCII bytes, frequent occurrences lead to the
-    // validation algorithm not to attempt further block-wise checks with larger
-    // block sizes until the penalty has been sufficiently reduced again.
-    // let mut penalty: usize = 0;
-
     'outer: while curr < end {
         // this block allows us to inexpensively jump to the non-ASCII branch
         // without having to go through the outer loop condition again
@@ -109,7 +102,7 @@ pub fn validate_utf8_with_stats(
                 loop {
                     curr += 1;
 
-                    if curr == buf.len() {
+                    if curr == end {
                         return Ok(());
                     }
 
@@ -124,16 +117,17 @@ pub fn validate_utf8_with_stats(
             }
 
             // check 8 or 2 word sized blocks for non-ASCII bytes
-            let non_ascii = 'block: loop {
+            let non_ascii = 'block: {
                 //if penalty == 0 {
                 while curr < block_end_8x {
+                    // cast to 8-word array reference
+                    // SAFETY: ...
                     let block = unsafe { &*(start.add(curr) as *const [usize; 8]) };
                     if has_non_ascii_byte(block) {
                         if let Some(stats) = stats.as_mut() {
                             stats.failed_blocks_8x += 1;
                         }
 
-                        //penalty += 0; // 16
                         break 'block 8;
                     }
 
@@ -143,12 +137,11 @@ pub fn validate_utf8_with_stats(
                         stats.success_blocks_8x += 1;
                     }
                 }
-                //}
 
                 // check 2-word sized blocks for non-ASCII bytes
                 // word-alignment has been determined at this point, so only
                 // the buffer length needs to be taken into consideration
-                /*while curr < block_end_2x {
+                while curr < block_end_2x {
                     // SAFETY: the loop condition guarantees that there is
                     // sufficient room for N word-blocks in the buffer
                     let block = unsafe { &*(start.add(curr) as *const [usize; 2]) };
@@ -157,27 +150,15 @@ pub fn validate_utf8_with_stats(
                             stats.failed_blocks_2x += 1;
                         }
 
-                        //penalty += 0; //4
                         break 'block 2;
                     }
 
                     curr += 2 * WORD_BYTES;
-                    /*if penalty >= 2 {
-                        penalty -= 2;
-                    } else if curr < block_end_8x {
-                        // opportunistically switch back to larger blocks, when
-                        // the reduction in accumulated backoff penalty permits
-                        if let Some(stats) = stats.as_mut() {
-                            stats.optimistic_2x_to_8x += 1;
-                        }
-
-                        continue 'block;
-                    }*/
 
                     if let Some(stats) = stats.as_mut() {
                         stats.success_blocks_2x += 1;
                     }
-                }*/
+                }
 
                 break 'block 0;
             };
@@ -208,8 +189,20 @@ pub fn validate_utf8_with_stats(
             }
 
             // ...otherwise, fall back to byte-wise checks
-            curr += 1;
-            continue 'outer;
+            loop {
+                curr += 1;
+
+                if curr >= end {
+                    return Ok(());
+                }
+
+                if buf[curr] >= 128 {
+                    break 'ascii;
+                }
+            }
+
+            //curr += 1;
+            //continue 'outer;
         }
 
         if let Some(stats) = stats.as_mut() {
@@ -276,7 +269,7 @@ const fn mask_block<const N: usize>(block: &[usize; N]) -> [usize; N] {
 /// It would be valid to just return 0 or panic, but this has non-trivial impact
 /// on generated code size.
 #[inline(always)]
-// #[cold]
+#[cold]
 const unsafe fn non_ascii_byte_position(block: &[usize]) -> u32 {
     let mut i = 0;
     while i < block.len() {
